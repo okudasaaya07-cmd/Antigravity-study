@@ -673,7 +673,11 @@
   /* ==========================================================
    * 11. 초기화
    * ======================================================== */
-  document.addEventListener("DOMContentLoaded", function(){ window.navigateTo("home"); });
+  document.addEventListener("DOMContentLoaded", function(){
+    loadDefaultBooks();       /* 검색 그리드에 100권 즉시 삽입 */
+    window.navigateTo("home"); /* 홈 화면 표시 */
+  });
 })();
+
 
 
