@@ -1,759 +1,536 @@
 /* ==========================================================================
-   La Librairie — app.js
-   Google Books API를 활용한 클라이언트 사이드 도서 검색 / AI 맞춤 추천 /
-   상세보기 / 리뷰(평점) 기능을 제공합니다.
-
-   ★ API 키 설정 방법 ★
-   아래 GOOGLE_API_KEY 에 Google Books API 키를 넣으면 훨씬 안정적입니다.
-   (무료 키 발급: https://console.cloud.google.com → Books API 사용 설정)
-   키가 없어도 동작하지만, 잦은 검색 시 일시 차단될 수 있습니다.
+   La Librairie — app.js  (최종 버전)
    ========================================================================== */
-
 (function () {
   "use strict";
 
-  /* ▼ 여기에 Google Books API 키를 입력하세요 (없으면 빈 문자열 "") */
-  var GOOGLE_API_KEY = "";
+  /* ▼ Google Books API 키 — 없어도 되지만 있으면 안정적 */
+  var API_KEY = "";
 
-  /* -------------------------------------------------------------------------
+  /* ==========================================================
    * 0. 전역 상태
-   * ----------------------------------------------------------------------- */
+   * ======================================================== */
   var state = {
-    activeView: "home",
-    lastMainView: "home",
-    selectedGenres: new Set(),
-    booksCache: {},
-    currentDetailBookId: null,
-    editingReviewId: null,
-    pendingRating: 0,
-    currentApiQuery: "",
-    currentRawQuery: "",
-    currentPage: 1,
-    totalItems: 0,
-    isLoadingMore: false,
+    activeView:       "home",
+    lastMainView:     "home",
+    selectedGenres:   new Set(),
+    booksCache:       {},
+    editingReviewId:  null,
+    pendingRating:    0,
+  };
+
+  /* 검색 페이지네이션 전용 */
+  var pg = {
+    apiQ:      "",   /* API에 보낸 q (prefix 포함) */
+    rawQ:      "",   /* 사용자 입력 원본 */
+    nextIdx:   0,    /* 다음 fetchPage 의 startIndex */
+    total:     0,    /* API totalItems */
+    busy:      false,
   };
 
   var REVIEWS_KEY = "laLibrairieReviews_v1";
-  var BOOKS_API   = "https://www.googleapis.com/books/v1/volumes";
-  var PAGE_SIZE   = 40;
+  var API_URL     = "https://www.googleapis.com/books/v1/volumes";
+  var PAGE        = 40; /* 1회 최대 */
 
-  /* -------------------------------------------------------------------------
-   * 1. 공통 유틸
-   * ----------------------------------------------------------------------- */
-  function escapeHTML(str) {
-    if (str == null) return "";
-    return String(str)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  /* ==========================================================
+   * 1. 유틸
+   * ======================================================== */
+  function esc(s) {
+    if (s == null) return "";
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
+  function clip(s, n) { return s && s.length > n ? s.slice(0,n).trim()+"…" : (s||""); }
+  function plain(s)   { return (s||"").replace(/<br\s*\/?>/gi,"\n").replace(/<\/p>/gi,"\n\n").replace(/<[^>]+>/g,"").trim(); }
+  function shuffle(a) { for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;} return a; }
+  function $id(id)    { return document.getElementById(id); }
+  function show(id)   { var e=$id(id); if(e) e.style.display="block"; }
+  function hide(id)   { var e=$id(id); if(e) e.style.display="none"; }
 
-  function truncate(str, n) {
-    if (!str) return "";
-    return str.length > n ? str.slice(0, n).trim() + "…" : str;
+  function showLoader(msg) {
+    var l=$id("global-loader"), m=$id("loader-message");
+    if(m) m.textContent = msg||"불러오는 중입니다...";
+    if(l) l.style.display = "flex";
   }
+  function hideLoader() { var l=$id("global-loader"); if(l) l.style.display="none"; }
 
-  function sanitizeDescription(desc) {
-    if (!desc) return "";
-    return desc
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/p>/gi, "\n\n")
-      .replace(/<[^>]+>/g, "")
-      .trim();
-  }
-
-  function shuffle(arr) {
-    for (var i = arr.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
-      var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  function toast(msg) {
+    var t=$id("app-toast");
+    if(!t){
+      t=document.createElement("div"); t.id="app-toast";
+      Object.assign(t.style,{position:"fixed",bottom:"32px",left:"50%",transform:"translateX(-50%)",
+        background:"var(--color-text-primary)",color:"var(--color-white)",padding:"14px 28px",
+        borderRadius:"3px",fontSize:"14px",zIndex:"2000",opacity:"0",transition:"opacity .3s",
+        maxWidth:"90vw",textAlign:"center"});
+      document.body.appendChild(t);
     }
-    return arr;
+    t.textContent=msg; t.style.opacity="1";
+    clearTimeout(window.__tt);
+    window.__tt=setTimeout(function(){ t.style.opacity="0"; },2800);
   }
 
-  function sleep(ms) {
-    return new Promise(function(r) { setTimeout(r, ms); });
-  }
-
-  function el(id) { return document.getElementById(id); }
-
-  function showLoader(message) {
-    var loader = el("global-loader");
-    var msgEl  = el("loader-message");
-    if (msgEl)  msgEl.textContent = message || "불러오는 중입니다...";
-    if (loader) loader.style.display = "flex";
-  }
-
-  function hideLoader() {
-    var loader = el("global-loader");
-    if (loader) loader.style.display = "none";
-  }
-
-  function notify(message) {
-    var toast = el("app-toast");
-    if (!toast) {
-      toast = document.createElement("div");
-      toast.id = "app-toast";
-      Object.assign(toast.style, {
-        position:"fixed", bottom:"32px", left:"50%",
-        transform:"translateX(-50%)",
-        backgroundColor:"var(--color-text-primary)", color:"var(--color-white)",
-        padding:"14px 28px", borderRadius:"3px", fontSize:"14px",
-        zIndex:"2000", boxShadow:"var(--shadow-subtle)",
-        opacity:"0", transition:"opacity .3s",
-        maxWidth:"90vw", textAlign:"center",
-      });
-      document.body.appendChild(toast);
-    }
-    toast.textContent = message;
-    toast.style.opacity = "1";
-    clearTimeout(window.__appToastTimer);
-    window.__appToastTimer = setTimeout(function() {
-      toast.style.opacity = "0";
-    }, 2800);
-  }
-
-  /* -------------------------------------------------------------------------
+  /* ==========================================================
    * 2. 화면 전환
-   * ----------------------------------------------------------------------- */
-  function showView(viewId) {
-    document.querySelectorAll(".view-section").forEach(function(e) {
-      e.classList.remove("active");
-    });
-    var target = el("view-" + viewId);
-    if (target) target.classList.add("active");
-
-    document.querySelectorAll(".nav-tab").forEach(function(e) {
-      e.classList.remove("active");
-    });
-    var tab = el("tab-" + viewId);
-    if (tab) tab.classList.add("active");
-
-    state.activeView = viewId;
-    window.scrollTo({ top: 0, behavior: "smooth" });
+   * ======================================================== */
+  function showView(id) {
+    document.querySelectorAll(".view-section").forEach(function(e){ e.classList.remove("active"); });
+    var v=$id("view-"+id); if(v) v.classList.add("active");
+    document.querySelectorAll(".nav-tab").forEach(function(e){ e.classList.remove("active"); });
+    var tab=$id("tab-"+id); if(tab) tab.classList.add("active");
+    state.activeView=id;
+    window.scrollTo({top:0,behavior:"smooth"});
   }
+  window.navigateTo = function(id) { showView(id); if(id!=="book-detail") state.lastMainView=id; };
+  window.navigateBack = function() { showView(state.lastMainView||"home"); };
 
-  window.navigateTo = function(viewId) {
-    showView(viewId);
-    if (viewId !== "book-detail") state.lastMainView = viewId;
-  };
-
-  window.navigateBack = function() {
-    showView(state.lastMainView || "home");
-  };
-
-  /* -------------------------------------------------------------------------
+  /* ==========================================================
    * 3. Google Books API
-   * ----------------------------------------------------------------------- */
-  function normalizeBookItem(item) {
-    var info  = item.volumeInfo || {};
-    var links = info.imageLinks  || {};
-    var thumbnail = links.thumbnail || links.smallThumbnail || null;
-    if (thumbnail) thumbnail = thumbnail.replace(/^http:/, "https:");
+   * ======================================================== */
+  function norm(item) {
+    var i=item.volumeInfo||{}, lk=i.imageLinks||{};
+    var th=lk.thumbnail||lk.smallThumbnail||null;
+    if(th) th=th.replace(/^http:/,"https:");
     return {
-      id:            item.id,
-      title:         info.title         || "제목 미상",
-      authors:       (info.authors && info.authors.length) ? info.authors.join(", ") : "작가 미상",
-      publisher:     info.publisher     || "",
-      publishedDate: info.publishedDate || "",
-      description:   info.description   || "",
-      categories:    info.categories    || [],
-      thumbnail:     thumbnail,
-      averageRating: info.averageRating || null,
-      infoLink:      info.infoLink || info.canonicalVolumeLink || null,
+      id:item.id, title:i.title||"제목 미상",
+      authors:(i.authors&&i.authors.length)?i.authors.join(", "):"작가 미상",
+      publisher:i.publisher||"", publishedDate:i.publishedDate||"",
+      description:i.description||"", categories:i.categories||[],
+      thumbnail:th, infoLink:i.infoLink||i.canonicalVolumeLink||null,
     };
   }
 
-  /**
-   * 단일 페이지 요청. { items, totalItems } 반환.
-   */
-  function searchBooksRaw(query, opts) {
-    opts = opts || {};
-    var params = new URLSearchParams({ q: query });
-    params.set("maxResults", String(Math.min(opts.maxResults || PAGE_SIZE, 40)));
-    params.set("startIndex", String(opts.startIndex || 0));
-    if (opts.langRestrict) params.set("langRestrict", opts.langRestrict);
-    if (opts.orderBy)      params.set("orderBy",      opts.orderBy);
-    if (GOOGLE_API_KEY)    params.set("key",          GOOGLE_API_KEY);
-
-    return fetch(BOOKS_API + "?" + params.toString())
-      .then(function(res) {
-        if (!res.ok) {
-          return res.text().then(function(body) {
-            throw new Error("API " + res.status + ": " + body.slice(0, 100));
-          });
-        }
-        return res.json();
-      })
-      .then(function(data) {
-        return {
-          items:      (data.items || []).map(normalizeBookItem),
-          totalItems: data.totalItems || 0,
-        };
-      });
+  /* 단일 페이지 요청 → { items, total } */
+  function fetchPage(q, startIndex) {
+    var p=new URLSearchParams({q:q});
+    p.set("maxResults",String(PAGE));
+    p.set("startIndex",String(startIndex||0));
+    if(API_KEY) p.set("key",API_KEY);
+    return fetch(API_URL+"?"+p.toString())
+      .then(function(r){ if(!r.ok) throw new Error("status "+r.status); return r.json(); })
+      .then(function(d){ return { items:(d.items||[]).map(norm), total:d.totalItems||0 }; });
   }
 
-  /** 실패해도 빈 결과를 반환하는 안전한 버전 */
-  function searchBooksRawSafe(query, opts) {
-    return searchBooksRaw(query, opts).catch(function() {
-      return { items: [], totalItems: 0 };
-    });
+  /* 실패해도 빈 결과 반환 (추가 로드용) */
+  function safeFetch(q, startIndex) {
+    return fetchPage(q,startIndex).catch(function(){ return {items:[],total:0}; });
   }
 
-  function fetchBookById(id) {
-    var url = BOOKS_API + "/" + id + (GOOGLE_API_KEY ? "?key=" + GOOGLE_API_KEY : "");
-    return fetch(url).then(function(res) {
-      if (!res.ok) throw new Error("도서 정보를 찾을 수 없습니다.");
-      return res.json();
-    }).then(normalizeBookItem);
-  }
-
-  /* -------------------------------------------------------------------------
+  /* ==========================================================
    * 4. 도서 카드 HTML
-   * ----------------------------------------------------------------------- */
-  function bookCardHTML(book, opts) {
-    opts = opts || {};
-    var year   = book.publishedDate ? book.publishedDate.slice(0, 4) : "";
-    var desc   = truncate(sanitizeDescription(book.description), 90);
-    var safeId = escapeHTML(book.id);
-    return (
-      '<div class="card" style="cursor:pointer;display:flex;flex-direction:column;overflow:hidden;height:100%;" onclick="showBookDetail(\'' + safeId + '\')">' +
-        '<div style="width:100%;height:260px;background-color:var(--color-bg-secondary);display:flex;align-items:center;justify-content:center;overflow:hidden;">' +
-          (book.thumbnail
-            ? '<img src="' + book.thumbnail + '" alt="' + escapeHTML(book.title) + ' 표지" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'<span style=\\\'font-size:36px;\\\'>📕</span>\'">'
-            : '<span style="font-size:36px;">📕</span>') +
-        '</div>' +
-        '<div style="padding:20px;display:flex;flex-direction:column;gap:8px;flex-grow:1;">' +
-          '<h4 style="font-size:16px;font-weight:700;line-height:1.4;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + escapeHTML(book.title) + '</h4>' +
-          '<p style="font-size:13px;color:var(--color-text-secondary);margin:0;">' + escapeHTML(book.authors) + (year ? " · " + year : "") + '</p>' +
-          '<p style="font-size:13px;color:var(--color-text-tertiary);line-height:1.6;margin:0;flex-grow:1;">' + (escapeHTML(desc) || "도서 소개가 준비중입니다.") + '</p>' +
-          (opts.aiReason
-            ? '<div style="margin-top:6px;padding:12px 14px;background-color:var(--color-bg-secondary);border-left:3px solid var(--color-gold);font-size:13px;font-style:italic;color:var(--color-text-primary);line-height:1.6;">' + escapeHTML(opts.aiReason) + '</div>'
-            : '') +
-        '</div>' +
-      '</div>'
-    );
+   * ======================================================== */
+  function cardHTML(book, reason) {
+    var yr=book.publishedDate?book.publishedDate.slice(0,4):"";
+    var ds=clip(plain(book.description),90);
+    var sid=esc(book.id);
+    return '<div class="card" style="cursor:pointer;display:flex;flex-direction:column;overflow:hidden;height:100%;" onclick="showBookDetail(\''+sid+'\')">' +
+      '<div style="width:100%;height:260px;background-color:var(--color-bg-secondary);display:flex;align-items:center;justify-content:center;overflow:hidden;">' +
+        (book.thumbnail?'<img src="'+book.thumbnail+'" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'<span style=\\\'font-size:36px;\\\'>📕</span>\'">'
+                       :'<span style="font-size:36px;">📕</span>') +
+      '</div>' +
+      '<div style="padding:20px;display:flex;flex-direction:column;gap:8px;flex-grow:1;">' +
+        '<h4 style="font-size:16px;font-weight:700;line-height:1.4;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">'+esc(book.title)+'</h4>' +
+        '<p style="font-size:13px;color:var(--color-text-secondary);margin:0;">'+esc(book.authors)+(yr?" · "+yr:"")+'</p>' +
+        '<p style="font-size:13px;color:var(--color-text-tertiary);line-height:1.6;margin:0;flex-grow:1;">'+(esc(ds)||"도서 소개가 준비중입니다.")+'</p>' +
+        (reason?'<div style="margin-top:6px;padding:12px 14px;background-color:var(--color-bg-secondary);border-left:3px solid var(--color-gold);font-size:13px;font-style:italic;line-height:1.6;">'+esc(reason)+'</div>':"") +
+      '</div></div>';
   }
 
-  /* -------------------------------------------------------------------------
-   * 5. 검색 결과 렌더링
-   * ----------------------------------------------------------------------- */
-  function updateSummary() {
-    var grid    = el("search-results-grid");
-    var summary = el("search-results-summary");
-    if (!grid || !summary) return;
-    var shownCount = grid.querySelectorAll(".card").length;
-    var totalStr   = state.totalItems > 0
-      ? " (전체 약 " + state.totalItems.toLocaleString() + "건)"
-      : "";
-    summary.textContent = "'" + state.currentRawQuery + "'에 대한 검색 결과 " + shownCount + "건" + totalStr;
+  /* ==========================================================
+   * 5. 검색 결과 렌더링 헬퍼
+   * ======================================================== */
+  function appendCards(books, append) {
+    var grid=$id("search-results-grid"); if(!grid) return;
+    var html=books.map(function(b){ return cardHTML(b,null); }).join("");
+    if(append) grid.insertAdjacentHTML("beforeend",html); else grid.innerHTML=html;
   }
 
-  function updateLoadMoreBtn() {
-    var wrapper = el("search-load-more-wrapper");
-    if (!wrapper) return;
-    var nextIdx = state.currentPage * PAGE_SIZE;
-    var hasMore = state.totalItems > 0 && nextIdx < state.totalItems && nextIdx < 480;
-    wrapper.style.display = hasMore ? "flex" : "none";
+  function refreshSummary() {
+    var el=$id("search-results-summary"); if(!el) return;
+    var cnt=($id("search-results-grid")||{querySelectorAll:function(){return[];}}).querySelectorAll(".card").length;
+    el.textContent="'"+pg.rawQ+"'에 대한 검색 결과 "+cnt+"건"+(pg.total>0?" (전체 약 "+pg.total.toLocaleString()+"건)":"");
+    el.style.display="block";
   }
 
-  function appendSearchResults(books, append) {
-    var grid    = el("search-results-grid");
-    var summary = el("search-results-summary");
-    var empty   = el("search-empty-state");
-    if (!grid) return;
+  /* 더 불러오기 버튼 표시 여부 갱신 */
+  function refreshBtn() {
+    var wrap=$id("load-more-wrap"); if(!wrap) return;
+    /* nextIdx < total 이고 API 한계(500) 미만이면 버튼 표시 */
+    var show = (pg.total > 0) && (pg.nextIdx < pg.total) && (pg.nextIdx < 500);
+    wrap.style.display = show ? "block" : "none";
+  }
 
-    if (!books.length && !append) {
-      grid.innerHTML = "";
-      if (summary) summary.style.display = "none";
-      if (empty) {
-        var ps = empty.querySelectorAll("p");
-        if (ps[0]) ps[0].textContent = "해당 도서를 서재에서 찾지 못했습니다.";
-        if (ps[1]) ps[1].textContent = "다른 키워드로 검색해 보세요.";
-        empty.style.display = "block";
-      }
-      updateLoadMoreBtn();
-      return;
+  function showEmpty(l1, l2) {
+    var grid=$id("search-results-grid"), sum=$id("search-results-summary"),
+        emp=$id("search-empty-state"),   wrap=$id("load-more-wrap");
+    if(grid) grid.innerHTML="";
+    if(sum)  sum.style.display="none";
+    if(wrap) wrap.style.display="none";
+    if(emp) {
+      var ps=emp.querySelectorAll("p");
+      if(ps[0]) ps[0].textContent=l1||"해당 도서를 서재에서 찾지 못했습니다.";
+      if(ps[1]) ps[1].textContent=l2||"다른 키워드로 검색해 보세요.";
+      emp.style.display="block";
     }
-
-    if (empty)   empty.style.display = "none";
-    if (summary) summary.style.display = "block";
-
-    var html = books.map(function(b) { return bookCardHTML(b); }).join("");
-    if (append) {
-      grid.insertAdjacentHTML("beforeend", html);
-    } else {
-      grid.innerHTML = html;
-    }
-
-    updateSummary();
-    updateLoadMoreBtn();
   }
 
-  /* -------------------------------------------------------------------------
-   * 6. 도서 검색
-   * ----------------------------------------------------------------------- */
-  function buildApiQuery(rawQuery, type) {
-    var q = (rawQuery || "").trim();
-    if (type === "title")  return "intitle:" + q;
-    if (type === "author") return "inauthor:" + q;
-    if (type === "genre")  return "subject:" + q;
-    return q;
+  /* ==========================================================
+   * 6. 검색 실행
+   * ======================================================== */
+  function buildQ(raw, type) {
+    if(type==="title")  return "intitle:"+raw;
+    if(type==="author") return "inauthor:"+raw;
+    if(type==="genre")  return "subject:"+raw;
+    return raw;
   }
 
-  /**
-   * 새 검색 시작:
-   *  1) 첫 40권 즉시 표시
-   *  2) 2·3페이지(+80권) 순차 추가
-   *  첫 요청 실패 시 prefix 없는 단순 쿼리로 재시도
-   */
-  function performSearch(rawQuery, type) {
-    var query = (rawQuery || "").trim();
-    if (!query) { notify("검색어를 입력해 주세요."); return; }
+  function doSearch(rawQ, type) {
+    var q=(rawQ||"").trim();
+    if(!q){ toast("검색어를 입력해 주세요."); return; }
 
-    state.currentRawQuery = query;
-    state.currentApiQuery = buildApiQuery(query, type);
-    state.currentPage     = 1;
-    state.totalItems      = 0;
+    /* 상태 초기화 */
+    pg.rawQ=""; pg.apiQ=""; pg.nextIdx=0; pg.total=0; pg.busy=false;
+
+    var empty=$id("search-empty-state"); if(empty) empty.style.display="none";
+    var wrap=$id("load-more-wrap"); if(wrap) wrap.style.display="none";
 
     showLoader("도서를 검색하고 있어요...");
 
-    /* ── 1차 시도 ── */
-    var firstPromise = searchBooksRaw(state.currentApiQuery, { startIndex: 0, maxResults: PAGE_SIZE })
-      .catch(function(err) {
-        /* 실패 시 단순 쿼리로 재시도 */
-        console.warn("1차 쿼리 실패, 단순 쿼리로 재시도:", err.message);
-        state.currentApiQuery = query;
-        return searchBooksRaw(query, { startIndex: 0, maxResults: PAGE_SIZE });
+    var prefixQ=buildQ(q,type); /* 접두어 포함 쿼리 (type=all이면 q와 동일) */
+
+    /* ── 1차: prefix 쿼리 시도 ──
+       실패(HTTP 오류) 또는 결과 0건이면 단순 쿼리로 재시도 */
+    fetchPage(prefixQ, 0)
+      .catch(function(err){
+        console.warn("1차 실패, 단순 쿼리 재시도:", err.message);
+        return fetchPage(q, 0);
+      })
+      .then(function(r){
+        /* 결과가 비어 있고 접두어를 붙인 쿼리였다면 단순 쿼리 재시도 */
+        if(!r.items.length && prefixQ !== q){
+          console.warn("접두어 쿼리 결과 0건, 단순 쿼리 재시도:", q);
+          return fetchPage(q, 0);
+        }
+        return r;
+      })
+      .then(function(r){
+        /* 결과가 있으면 접두어 쿼리, 없으면 단순 쿼리로 더 불러오기 */
+        var finalQ = (r.items.length && prefixQ !== q) ? prefixQ : q;
+
+        /* 상태 저장 */
+        pg.rawQ   = q;
+        pg.apiQ   = finalQ;
+        pg.total  = r.total;
+        pg.nextIdx = PAGE;   /* 다음 요청은 40번부터 */
+
+        hideLoader();
+
+        if(!r.items.length){
+          showEmpty("해당 도서를 서재에서 찾지 못했습니다.", "다른 키워드로 검색해 보세요.");
+          return;
+        }
+
+        r.items.forEach(function(b){ state.booksCache[b.id]=b; });
+        appendCards(r.items, false);
+        refreshSummary();
+        refreshBtn();
+
+        /* ── 2·3페이지 조용히 로드 (레이트 리밋 방지: 400ms 간격) ── */
+        function silentLoad(si) {
+          /* pg.total 이 아직 0 이면(API 버그) 일단 시도 */
+          if(pg.total > 0 && si >= pg.total) return;
+          if(si >= 500) return;
+          setTimeout(function(){
+            safeFetch(pg.apiQ, si).then(function(r2){
+              var fresh=r2.items.filter(function(b){
+                if(state.booksCache[b.id]) return false;
+                state.booksCache[b.id]=b; return true;
+              });
+              if(fresh.length){ appendCards(fresh,true); refreshSummary(); }
+              /* nextIdx 를 여기까지 진행된 위치로 업데이트 */
+              if(pg.nextIdx <= si) pg.nextIdx = si + PAGE;
+              refreshBtn();
+            });
+          }, si===PAGE ? 500 : 1100); /* page2: 0.5s, page3: 1.1s */
+        }
+        silentLoad(PAGE);       /* page 2 (startIndex 40)  */
+        silentLoad(PAGE*2);     /* page 3 (startIndex 80)  */
+      })
+      .catch(function(err){
+        console.error("검색 실패:", err);
+        hideLoader();
+        showEmpty("도서 정보를 불러오는 중 문제가 발생했습니다.", "네트워크를 확인하거나 잠시 후 다시 시도해 주세요.");
       });
-
-    firstPromise.then(function(firstResult) {
-      state.totalItems  = firstResult.totalItems;
-      state.currentPage = 1;
-
-      firstResult.items.forEach(function(b) { state.booksCache[b.id] = b; });
-      appendSearchResults(firstResult.items, false);
-      hideLoader();
-
-      if (!firstResult.items.length) return;
-
-      /* ── 2·3페이지 순차 추가 ── */
-      function loadPage(page) {
-        if (page > 2) return;
-        var startIndex = page * PAGE_SIZE;
-        if (startIndex >= state.totalItems || startIndex >= 480) return;
-
-        sleep(400).then(function() {
-          return searchBooksRawSafe(state.currentApiQuery, { startIndex: startIndex, maxResults: PAGE_SIZE });
-        }).then(function(extra) {
-          var newBooks = extra.items.filter(function(b) {
-            if (state.booksCache[b.id]) return false;
-            state.booksCache[b.id] = b;
-            return true;
-          });
-          if (newBooks.length) {
-            state.currentPage = page + 1;
-            appendSearchResults(newBooks, true);
-          }
-          loadPage(page + 1);
-        });
-      }
-      loadPage(1);
-
-    }).catch(function(err) {
-      console.error("검색 오류:", err);
-      hideLoader();
-      var grid    = el("search-results-grid");
-      var summary = el("search-results-summary");
-      var empty   = el("search-empty-state");
-      var wrapper = el("search-load-more-wrapper");
-      if (grid)    grid.innerHTML = "";
-      if (summary) summary.style.display = "none";
-      if (wrapper) wrapper.style.display = "none";
-      if (empty) {
-        var ps = empty.querySelectorAll("p");
-        if (ps[0]) ps[0].textContent = "도서 정보를 불러오는 중 문제가 발생했습니다.";
-        if (ps[1]) ps[1].textContent = "네트워크를 확인하거나 잠시 후 다시 시도해 주세요.";
-        empty.style.display = "block";
-      }
-    });
   }
 
-  /**
-   * "더 불러오기" 버튼
-   * index.html: <button id="search-load-more-btn" onclick="loadMoreResults()">더 불러오기</button>
-   */
+  /* ──────────────────────────────────────────────────────────
+   * "더 불러오기" 버튼 핸들러
+   * index.html: <button onclick="loadMoreResults()">더 불러오기</button>
+   * ────────────────────────────────────────────────────────── */
   window.loadMoreResults = function() {
-    if (state.isLoadingMore) return;
-    var nextStartIndex = state.currentPage * PAGE_SIZE;
-    if (nextStartIndex >= state.totalItems || nextStartIndex >= 480) return;
+    if(pg.busy) return;
 
-    state.isLoadingMore = true;
-    var btn = el("search-load-more-btn");
-    if (btn) { btn.disabled = true; btn.textContent = "불러오는 중..."; }
+    /* pg.total 이 0 이어도(API 미반환) nextIdx 가 0 이 아니면 시도 */
+    if(pg.total > 0 && pg.nextIdx >= pg.total){ refreshBtn(); return; }
+    if(pg.nextIdx >= 500){ refreshBtn(); return; }
+    if(!pg.apiQ){ return; }   /* 검색한 적 없음 */
 
-    function loadPage(i) {
-      if (i >= 2) {
-        state.isLoadingMore = false;
-        if (btn) { btn.disabled = false; btn.textContent = "더 불러오기"; }
-        state.currentPage += 2;
-        updateLoadMoreBtn();
-        return;
-      }
-      var startIndex = (state.currentPage + i) * PAGE_SIZE;
-      if (startIndex >= state.totalItems || startIndex >= 480) {
-        loadPage(2); return; // 종료
-      }
-      var wait = i === 0 ? Promise.resolve() : sleep(400);
-      wait.then(function() {
-        return searchBooksRawSafe(state.currentApiQuery, { startIndex: startIndex, maxResults: PAGE_SIZE });
-      }).then(function(extra) {
-        var newBooks = extra.items.filter(function(b) {
-          if (state.booksCache[b.id]) return false;
-          state.booksCache[b.id] = b;
-          return true;
+    pg.busy = true;
+    var btn=$id("load-more-btn");
+    if(btn){ btn.disabled=true; btn.textContent="불러오는 중..."; }
+
+    var startIdx = pg.nextIdx;
+    pg.nextIdx  += PAGE;       /* 미리 이동 (중복 방지) */
+
+    safeFetch(pg.apiQ, startIdx)
+      .then(function(r){
+        /* total 갱신 (첫 로드 때 0 이었던 경우 보정) */
+        if(r.total > 0) pg.total = r.total;
+
+        var fresh=r.items.filter(function(b){
+          if(state.booksCache[b.id]) return false;
+          state.booksCache[b.id]=b; return true;
         });
-        if (newBooks.length) appendSearchResults(newBooks, true);
-        loadPage(i + 1);
+
+        if(fresh.length){
+          appendCards(fresh, true);
+          refreshSummary();
+        } else if(r.items.length===0 && pg.total===0){
+          /* 결과가 아예 없으면 버튼 숨기기 */
+          pg.total = startIdx; /* total 을 현재 위치로 고정 */
+        }
+
+        pg.busy=false;
+        if(btn){ btn.disabled=false; btn.textContent="더 불러오기"; }
+        refreshBtn();
       });
-    }
-    loadPage(0);
   };
 
-  /* index.html 검색 화면: onsubmit="handleSearch(event)" */
-  window.handleSearch = function(event) {
-    event.preventDefault();
-    var type  = el("search-type")  ? el("search-type").value  : "all";
-    var query = el("search-input") ? el("search-input").value : "";
-    performSearch(query, type);
+  /* index.html: onsubmit="handleSearch(event)" */
+  window.handleSearch = function(e) {
+    e.preventDefault();
+    doSearch(
+      $id("search-input") ? $id("search-input").value : "",
+      $id("search-type")  ? $id("search-type").value  : "all"
+    );
   };
 
-  /* index.html 홈 검색바: onsubmit="handleHomeSearch(event)" */
-  window.handleHomeSearch = function(event) {
-    event.preventDefault();
-    var query = el("home-search-input") ? el("home-search-input").value.trim() : "";
-    if (!query) { notify("검색어를 입력해 주세요."); return; }
+  /* index.html: onsubmit="handleHomeSearch(event)" */
+  window.handleHomeSearch = function(e) {
+    e.preventDefault();
+    var q=($id("home-search-input")||{}).value||"";
+    q=q.trim();
+    if(!q){ toast("검색어를 입력해 주세요."); return; }
     window.navigateTo("search");
-    var searchInput = el("search-input");
-    var searchType  = el("search-type");
-    if (searchInput) searchInput.value = query;
-    if (searchType)  searchType.value  = "all";
-    performSearch(query, "all");
+    if($id("search-input")) $id("search-input").value=q;
+    if($id("search-type"))  $id("search-type").value="all";
+    doSearch(q,"all");
   };
 
-  /* -------------------------------------------------------------------------
-   * 7. AI 맞춤 책 추천
-   * ----------------------------------------------------------------------- */
+  /* ==========================================================
+   * 7. AI 추천
+   * ======================================================== */
   window.toggleGenreSelection = function(btn, genre) {
-    if (state.selectedGenres.has(genre)) {
+    if(state.selectedGenres.has(genre)){
       state.selectedGenres.delete(genre);
       btn.classList.remove("selected");
-      btn.style.backgroundColor = "";
-      btn.style.color = "";
-      btn.style.borderColor = "";
-      btn.style.fontWeight = "";
+      btn.style.backgroundColor=btn.style.color=btn.style.borderColor=btn.style.fontWeight="";
     } else {
       state.selectedGenres.add(genre);
       btn.classList.add("selected");
-      btn.style.backgroundColor = "var(--color-gold)";
-      btn.style.color = "var(--color-white)";
-      btn.style.borderColor = "var(--color-gold)";
-      btn.style.fontWeight = "700";
+      btn.style.backgroundColor="var(--color-gold)";
+      btn.style.color="var(--color-white)";
+      btn.style.borderColor="var(--color-gold)";
+      btn.style.fontWeight="700";
     }
   };
 
-  function fetchRecommendationCandidates(genres, keywords) {
-    var queries = [];
-    if (genres.length) {
-      genres.forEach(function(g) { queries.push(keywords ? g + " " + keywords : g); });
-    } else if (keywords) {
-      queries.push(keywords);
-    } else {
-      queries.push("추천 도서");
-    }
-
-    var all = {}, withThumb = {};
-
-    function next(i) {
-      if (i >= queries.length) {
-        var pool = Object.values(withThumb);
-        return Promise.resolve(pool.length >= 5 ? pool : Object.values(all));
-      }
-      return sleep(i === 0 ? 0 : 300).then(function() {
-        return searchBooksRawSafe(queries[i], { maxResults: 40, startIndex: 0, langRestrict: "ko" });
-      }).then(function(result) {
-        result.items.forEach(function(b) {
-          all[b.id] = b;
-          if (b.thumbnail) withThumb[b.id] = b;
-        });
-        return next(i + 1);
-      });
-    }
-
-    return next(0);
-  }
-
-  function craftReason(book, style, keywords, index) {
-    var templates = [
-      function() { return '"' + style + '"를 찾는 마음에, 「' + book.title + '」가 차분히 다가와 그 결을 채워줄 책입니다.'; },
-      function() { return '「' + book.title + '」은 ' + (keywords ? "'" + truncate(keywords, 24) + "'라는 마음" : "지금 이 순간의 마음") + '에 또 하나의 결을 더해줄 한 권입니다.'; },
-      function() { return '한 장씩 넘길 때마다, 「' + book.title + '」은 ' + style + '에 가장 가까운 결을 지닌 책으로 다가올 것입니다.'; },
-      function() { return '지금 머무는 생각의 결을 따라가 보면, 「' + book.title + '」만큼 어울리는 책을 찾기 어려울 것입니다.'; },
-      function() { return (book.categories.length ? book.categories[0] + " 서가에서, " : "") + '「' + book.title + '」은 오늘의 당신에게 조용히 건네는 한 권의 위안입니다.'; },
+  function craftReason(book, style, kw, idx) {
+    var t=[
+      function(){ return '"'+style+'"를 찾는 마음에, 「'+book.title+'」가 차분히 다가와 그 결을 채워줄 책입니다.'; },
+      function(){ return '「'+book.title+'」은 '+(kw?'\''+clip(kw,24)+'\'라는 마음':'지금 이 순간의 마음')+'에 또 하나의 결을 더해줄 한 권입니다.'; },
+      function(){ return '한 장씩 넘길 때마다, 「'+book.title+'」은 '+style+'에 가장 가까운 결을 지닌 책으로 다가올 것입니다.'; },
+      function(){ return '지금 머무는 생각의 결을 따라가 보면, 「'+book.title+'」만큼 어울리는 책을 찾기 어려울 것입니다.'; },
+      function(){ return (book.categories.length?book.categories[0]+' 서가에서, ':'')+'「'+book.title+'」은 오늘의 당신에게 조용히 건네는 한 권의 위안입니다.'; },
     ];
-    return templates[index % templates.length]();
+    return t[idx%t.length]();
   }
 
-  window.handleRecommendation = function(event) {
-    event.preventDefault();
-    var genres   = Array.from(state.selectedGenres);
-    var keywords = el("recommend-keywords") ? el("recommend-keywords").value.trim() : "";
-    var style    = el("recommend-style")    ? el("recommend-style").value            : "";
-
-    if (!genres.length && !keywords) {
-      notify("선호 장르를 선택하거나, 마음에 머무는 키워드를 입력해 주세요.");
-      return;
-    }
+  window.handleRecommendation = function(e) {
+    e.preventDefault();
+    var genres  =Array.from(state.selectedGenres);
+    var kw      =($id("recommend-keywords")||{}).value||""; kw=kw.trim();
+    var style   =($id("recommend-style")||{}).value||"";
+    if(!genres.length&&!kw){ toast("선호 장르를 선택하거나 키워드를 입력해 주세요."); return; }
 
     showLoader("당신의 결을 닮은 책을 고르고 있어요...");
-    fetchRecommendationCandidates(genres, keywords).then(function(candidates) {
-      if (!candidates.length) {
-        notify("조건에 맞는 도서를 찾지 못했습니다. 다른 키워드로 시도해 보세요.");
+
+    var queries=genres.length?genres.map(function(g){ return kw?g+" "+kw:g; }):[kw||"추천 도서"];
+    var all={}, wt={}, idx=0;
+
+    function next(){
+      if(idx>=queries.length){
+        hideLoader();
+        var pool=Object.values(wt); if(pool.length<5) pool=Object.values(all);
+        if(!pool.length){ toast("조건에 맞는 도서를 찾지 못했습니다."); return; }
+        shuffle(pool);
+        var picks=pool.slice(0,5);
+        picks.forEach(function(b){ state.booksCache[b.id]=b; });
+        var grid=$id("recommend-grid");
+        if(grid) grid.innerHTML=picks.map(function(b,i){ return cardHTML(b,craftReason(b,style,kw,i)); }).join("");
+        var fw=$id("recommend-form-wrapper"), rw=$id("recommend-results-wrapper");
+        if(fw) fw.style.display="none"; if(rw) rw.style.display="block";
+        window.scrollTo({top:0,behavior:"smooth"});
         return;
       }
-      shuffle(candidates);
-      var picks = candidates.slice(0, 5);
-      picks.forEach(function(b) { state.booksCache[b.id] = b; });
-
-      var grid = el("recommend-grid");
-      if (grid) {
-        grid.innerHTML = picks.map(function(b, i) {
-          return bookCardHTML(b, { aiReason: craftReason(b, style, keywords, i) });
-        }).join("");
-      }
-
-      var formW    = el("recommend-form-wrapper");
-      var resultsW = el("recommend-results-wrapper");
-      if (formW)    formW.style.display    = "none";
-      if (resultsW) resultsW.style.display = "block";
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }).catch(function(err) {
-      console.error(err);
-      notify("추천 도서를 불러오는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-    }).finally(function() {
-      hideLoader();
-    });
+      var q=queries[idx++];
+      setTimeout(function(){
+        safeFetch(q,0).then(function(r){
+          r.items.forEach(function(b){ all[b.id]=b; if(b.thumbnail) wt[b.id]=b; });
+          next();
+        });
+      }, idx>1?350:0);
+    }
+    next();
   };
 
   window.resetRecommendations = function() {
-    var formW    = el("recommend-form-wrapper");
-    var resultsW = el("recommend-results-wrapper");
-    if (resultsW) resultsW.style.display = "none";
-    if (formW)    formW.style.display    = "block";
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    var fw=$id("recommend-form-wrapper"), rw=$id("recommend-results-wrapper");
+    if(rw) rw.style.display="none"; if(fw) fw.style.display="block";
+    window.scrollTo({top:0,behavior:"smooth"});
   };
 
-  /* -------------------------------------------------------------------------
-   * 8. 도서 상세보기
-   * ----------------------------------------------------------------------- */
-  function renderBookDetail(book) {
-    var card       = el("book-detail-card");
-    if (!card) return;
-    var categories = book.categories.length ? book.categories.join(", ") : "";
-    var year       = book.publishedDate ? book.publishedDate.slice(0, 4) : "";
-
-    card.innerHTML =
+  /* ==========================================================
+   * 8. 도서 상세
+   * ======================================================== */
+  function renderDetail(book) {
+    var card=$id("book-detail-card"); if(!card) return;
+    var cats=book.categories.length?book.categories.join(", "):"";
+    var yr=book.publishedDate?book.publishedDate.slice(0,4):"";
+    card.innerHTML=
       '<div style="background-color:var(--color-bg-secondary);border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;min-height:380px;overflow:hidden;">' +
-        (book.thumbnail
-          ? '<img src="' + book.thumbnail + '" alt="' + escapeHTML(book.title) + ' 표지" style="width:100%;height:100%;object-fit:cover;">'
-          : '<span style="font-size:64px;">📕</span>') +
+        (book.thumbnail?'<img src="'+book.thumbnail+'" style="width:100%;height:100%;object-fit:cover;">'
+                       :'<span style="font-size:64px;">📕</span>') +
       '</div>' +
       '<div>' +
-        (categories ? '<p style="font-size:12px;letter-spacing:.1em;color:var(--color-gold-dark);text-transform:uppercase;font-weight:700;margin-bottom:10px;">' + escapeHTML(categories) + '</p>' : '') +
-        '<h1 style="font-size:30px;font-weight:800;line-height:1.3;margin-bottom:10px;">' + escapeHTML(book.title) + '</h1>' +
-        '<p style="font-size:16px;color:var(--color-text-secondary);margin-bottom:18px;">' + escapeHTML(book.authors) +
-          (book.publisher ? " · " + escapeHTML(book.publisher) : "") + (year ? " · " + year : "") + '</p>' +
+        (cats?'<p style="font-size:12px;letter-spacing:.1em;color:var(--color-gold-dark);text-transform:uppercase;font-weight:700;margin-bottom:10px;">'+esc(cats)+'</p>':'') +
+        '<h1 style="font-size:30px;font-weight:800;line-height:1.3;margin-bottom:10px;">'+esc(book.title)+'</h1>' +
+        '<p style="font-size:16px;color:var(--color-text-secondary);margin-bottom:18px;">'+esc(book.authors)+(book.publisher?" · "+esc(book.publisher):"")+(yr?" · "+yr:"")+'</p>' +
         '<div class="gold-decor left" style="width:40px;margin:0 0 18px;"></div>' +
-        '<p style="font-size:15px;line-height:1.9;color:var(--color-text-primary);white-space:pre-line;">' +
-          (book.description ? escapeHTML(sanitizeDescription(book.description)) : "등록된 책 소개가 없습니다.") + '</p>' +
-        (book.infoLink ? '<a href="' + book.infoLink + '" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-top:24px;display:inline-block;">Google Books에서 자세히 보기 ↗</a>' : '') +
+        '<p style="font-size:15px;line-height:1.9;color:var(--color-text-primary);white-space:pre-line;">'+(book.description?esc(plain(book.description)):"등록된 책 소개가 없습니다.")+'</p>' +
+        (book.infoLink?'<a href="'+book.infoLink+'" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-top:24px;display:inline-block;">Google Books에서 자세히 보기 ↗</a>':'') +
       '</div>';
   }
 
   window.showBookDetail = function(id) {
-    state.currentDetailBookId = id;
     showView("book-detail");
     showLoader("도서 정보를 불러오고 있어요...");
-
-    var book = state.booksCache[id];
-    var p = book ? Promise.resolve(book) : fetchBookById(id);
-
-    p.then(function(b) {
-      if (!state.booksCache[id]) state.booksCache[id] = b;
-      renderBookDetail(b);
-      renderReviewSection(id);
-    }).catch(function(err) {
-      console.error(err);
-      var card = el("book-detail-card");
-      if (card) card.innerHTML =
-        '<p style="grid-column:1/-1;text-align:center;padding:40px 0;color:var(--color-text-secondary);">도서 정보를 불러오지 못했습니다.<br>잠시 후 다시 시도해 주세요.</p>';
-    }).finally(function() {
+    var book=state.booksCache[id];
+    var p=book?Promise.resolve(book):
+      fetch(API_URL+"/"+id+(API_KEY?"?key="+API_KEY:""))
+        .then(function(r){ if(!r.ok) throw new Error("status "+r.status); return r.json(); })
+        .then(norm);
+    p.then(function(b){
+      state.booksCache[id]=b;
+      renderDetail(b);
+      renderReviews(id);
       hideLoader();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({top:0,behavior:"smooth"});
+    }).catch(function(err){
+      console.error(err);
+      hideLoader();
+      var c=$id("book-detail-card");
+      if(c) c.innerHTML='<p style="grid-column:1/-1;text-align:center;padding:40px 0;color:var(--color-text-secondary);">도서 정보를 불러오지 못했습니다.<br>잠시 후 다시 시도해 주세요.</p>';
     });
   };
 
-  /* -------------------------------------------------------------------------
-   * 9. 평점 및 리뷰 (localStorage)
-   * ----------------------------------------------------------------------- */
-  function loadAllReviews() {
-    try { return JSON.parse(localStorage.getItem(REVIEWS_KEY)) || {}; }
-    catch (_) { return {}; }
+  /* ==========================================================
+   * 9. 리뷰
+   * ======================================================== */
+  function allReviews()        { try{ return JSON.parse(localStorage.getItem(REVIEWS_KEY))||{}; }catch(_){ return {}; } }
+  function saveAll(data)       { localStorage.setItem(REVIEWS_KEY,JSON.stringify(data)); }
+  function getR(id)            { return allReviews()[id]||[]; }
+  function setR(id,arr)        { var a=allReviews(); a[id]=arr; saveAll(a); }
+
+  function starsHTML(avg) {
+    var r=Math.round(avg),h="";
+    for(var i=1;i<=5;i++) h+='<span style="color:'+(i<=r?"var(--color-gold)":"var(--color-border)")+';font-size:18px;">★</span>';
+    return h;
   }
-
-  function saveAllReviews(data) {
-    localStorage.setItem(REVIEWS_KEY, JSON.stringify(data));
+  function pickerHTML(n) {
+    var h="";
+    for(var i=1;i<=5;i++) h+='<span onclick="setPendingRating('+i+')" style="cursor:pointer;font-size:26px;line-height:1;margin-right:4px;color:'+(i<=n?"var(--color-gold)":"var(--color-border)")+';">★</span>';
+    return h;
   }
+  window.setPendingRating=function(n){ state.pendingRating=n; var e=$id("review-star-picker"); if(e) e.innerHTML=pickerHTML(n); };
 
-  function getReviewsForBook(bookId) { return loadAllReviews()[bookId] || []; }
-
-  function setReviewsForBook(bookId, reviews) {
-    var all = loadAllReviews();
-    all[bookId] = reviews;
-    saveAllReviews(all);
-  }
-
-  function starsDisplayHTML(avg) {
-    var rounded = Math.round(avg), html = "";
-    for (var i = 1; i <= 5; i++)
-      html += '<span style="color:' + (i <= rounded ? "var(--color-gold)" : "var(--color-border)") + ';font-size:18px;">★</span>';
-    return html;
-  }
-
-  function starPickerHTML(n) {
-    var html = "";
-    for (var i = 1; i <= 5; i++)
-      html += '<span onclick="setPendingRating(' + i + ')" style="cursor:pointer;font-size:26px;line-height:1;margin-right:4px;color:' + (i <= n ? "var(--color-gold)" : "var(--color-border)") + ';">★</span>';
-    return html;
-  }
-
-  window.setPendingRating = function(n) {
-    state.pendingRating = n;
-    var picker = el("review-star-picker");
-    if (picker) picker.innerHTML = starPickerHTML(n);
-  };
-
-  function reviewFormHTML(bookId) {
-    var editing = state.editingReviewId;
-    var prefillText = "";
-    if (editing) {
-      var found = getReviewsForBook(bookId).find(function(r) { return r.id === editing; });
-      if (found) { prefillText = found.comment; state.pendingRating = found.rating; }
-      else { state.editingReviewId = null; state.pendingRating = 0; }
-    } else { state.pendingRating = 0; }
-
+  function frmHTML(bookId) {
+    var ed=state.editingReviewId, pre="";
+    if(ed){
+      var f=getR(bookId).find(function(r){ return r.id===ed; });
+      if(f){ pre=f.comment; state.pendingRating=f.rating; } else { state.editingReviewId=null; state.pendingRating=0; }
+    } else { state.pendingRating=0; }
     return '<div class="card" style="padding:28px;background-color:var(--color-bg-secondary);border:1px solid var(--color-border);">' +
-      '<h4 style="font-size:16px;font-weight:700;margin-bottom:16px;">' + (editing ? "리뷰 수정하기" : "리뷰 작성하기") + '</h4>' +
-      '<div id="review-star-picker" style="margin-bottom:14px;">' + starPickerHTML(state.pendingRating) + '</div>' +
-      '<textarea id="review-comment-input" class="form-control" rows="3" placeholder="이 책에 대한 감상을 한 줄, 혹은 몇 줄로 남겨주세요." style="resize:none;margin-bottom:14px;background-color:var(--color-white);line-height:1.7;">' + escapeHTML(prefillText) + '</textarea>' +
+      '<h4 style="font-size:16px;font-weight:700;margin-bottom:16px;">'+(ed?"리뷰 수정하기":"리뷰 작성하기")+'</h4>' +
+      '<div id="review-star-picker" style="margin-bottom:14px;">'+pickerHTML(state.pendingRating)+'</div>' +
+      '<textarea id="review-comment-input" class="form-control" rows="3" placeholder="이 책에 대한 감상을 남겨주세요." style="resize:none;margin-bottom:14px;background-color:var(--color-white);line-height:1.7;">'+esc(pre)+'</textarea>' +
       '<div style="display:flex;gap:10px;">' +
-        '<button type="button" class="btn btn-primary" style="padding:10px 24px;" onclick="submitReview(\'' + escapeHTML(bookId) + '\')">' + (editing ? "수정 완료" : "리뷰 등록") + '</button>' +
-        (editing ? '<button type="button" class="btn btn-secondary" style="padding:10px 24px;" onclick="cancelEditReview(\'' + escapeHTML(bookId) + '\')">취소</button>' : '') +
+        '<button type="button" class="btn btn-primary" style="padding:10px 24px;" onclick="submitReview(\''+esc(bookId)+'\')">'+(ed?"수정 완료":"리뷰 등록")+'</button>' +
+        (ed?'<button type="button" class="btn btn-secondary" style="padding:10px 24px;" onclick="cancelEditReview(\''+esc(bookId)+'\')">취소</button>':"") +
       '</div></div>';
   }
 
-  function reviewCardHTML(review, bookId) {
-    var dateStr = new Date(review.updatedAt || review.createdAt).toLocaleDateString("ko-KR");
-    var stars   = "★".repeat(review.rating) + "☆".repeat(5 - review.rating);
+  function rvHTML(r,bookId) {
+    var d=new Date(r.updatedAt||r.createdAt).toLocaleDateString("ko-KR");
     return '<div class="card" style="padding:24px;display:flex;flex-direction:column;gap:10px;">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">' +
-        '<div class="star-rating" style="color:var(--color-gold);font-size:15px;letter-spacing:1px;">' + stars + '</div>' +
-        '<span style="font-size:12px;color:var(--color-text-tertiary);white-space:nowrap;">' + dateStr + (review.updatedAt ? " (수정됨)" : "") + '</span>' +
+        '<div style="color:var(--color-gold);font-size:15px;letter-spacing:1px;">'+"★".repeat(r.rating)+"☆".repeat(5-r.rating)+'</div>' +
+        '<span style="font-size:12px;color:var(--color-text-tertiary);white-space:nowrap;">'+d+(r.updatedAt?" (수정됨)":"")+'</span>' +
       '</div>' +
-      '<p style="font-size:14px;line-height:1.8;color:var(--color-text-primary);white-space:pre-line;margin:0;">' + escapeHTML(review.comment) + '</p>' +
+      '<p style="font-size:14px;line-height:1.8;color:var(--color-text-primary);white-space:pre-line;margin:0;">'+esc(r.comment)+'</p>' +
       '<div style="display:flex;gap:8px;margin-top:6px;">' +
-        '<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;" onclick="startEditReview(\'' + escapeHTML(bookId) + '\',\'' + escapeHTML(review.id) + '\')">수정</button>' +
-        '<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;" onclick="deleteReview(\'' + escapeHTML(bookId) + '\',\'' + escapeHTML(review.id) + '\')">삭제</button>' +
+        '<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;" onclick="startEditReview(\''+esc(bookId)+'\',\''+esc(r.id)+'\')">수정</button>' +
+        '<button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;" onclick="deleteReview(\''+esc(bookId)+'\',\''+esc(r.id)+'\')">삭제</button>' +
       '</div></div>';
   }
 
-  function renderReviewSection(bookId) {
-    var reviews = getReviewsForBook(bookId).slice().sort(function(a, b) {
-      return (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
-    });
-    var avg = reviews.length
-      ? reviews.reduce(function(s, r) { return s + r.rating; }, 0) / reviews.length
-      : 0;
-
-    var avgRating  = el("detail-avg-rating");
-    var avgStars   = el("detail-avg-stars");
-    var reviewCount = el("detail-review-count");
-    var writeBlock = el("write-review-block");
-    var list       = el("reviews-list-container");
-
-    if (avgRating)   avgRating.textContent   = avg.toFixed(1);
-    if (avgStars)    avgStars.innerHTML       = starsDisplayHTML(avg);
-    if (reviewCount) reviewCount.textContent  = "전체 리뷰 " + reviews.length + "개";
-    if (writeBlock)  writeBlock.innerHTML     = reviewFormHTML(bookId);
-    if (list) {
-      list.innerHTML = reviews.length
-        ? reviews.map(function(r) { return reviewCardHTML(r, bookId); }).join("")
-        : '<p style="text-align:center;padding:40px 0;color:var(--color-text-tertiary);background-color:var(--color-white);border:1px solid var(--color-border);">가장 먼저 이 책에 대한 감상을 남겨보세요.</p>';
-    }
+  function renderReviews(bookId) {
+    var rvs=getR(bookId).slice().sort(function(a,b){ return (b.updatedAt||b.createdAt)-(a.updatedAt||a.createdAt); });
+    var avg=rvs.length?rvs.reduce(function(s,r){ return s+r.rating; },0)/rvs.length:0;
+    if($id("detail-avg-rating"))   $id("detail-avg-rating").textContent   =avg.toFixed(1);
+    if($id("detail-avg-stars"))    $id("detail-avg-stars").innerHTML      =starsHTML(avg);
+    if($id("detail-review-count")) $id("detail-review-count").textContent ="전체 리뷰 "+rvs.length+"개";
+    if($id("write-review-block"))  $id("write-review-block").innerHTML    =frmHTML(bookId);
+    var list=$id("reviews-list-container");
+    if(list) list.innerHTML=rvs.length
+      ?rvs.map(function(r){ return rvHTML(r,bookId); }).join("")
+      :'<p style="text-align:center;padding:40px 0;color:var(--color-text-tertiary);background-color:var(--color-white);border:1px solid var(--color-border);">가장 먼저 이 책에 대한 감상을 남겨보세요.</p>';
   }
 
-  window.submitReview = function(bookId) {
-    var rating    = state.pendingRating;
-    var commentEl = el("review-comment-input");
-    var comment   = commentEl ? commentEl.value.trim() : "";
-    if (!rating)  { notify("별점을 선택해 주세요."); return; }
-    if (!comment) { notify("감상평을 입력해 주세요."); return; }
-
-    var reviews = getReviewsForBook(bookId);
-    if (state.editingReviewId) {
-      reviews = reviews.map(function(r) {
-        return r.id === state.editingReviewId
-          ? Object.assign({}, r, { rating: rating, comment: comment, updatedAt: Date.now() })
-          : r;
-      });
-      state.editingReviewId = null;
+  window.submitReview=function(bookId){
+    var rating=state.pendingRating, el=$id("review-comment-input"), comment=el?el.value.trim():"";
+    if(!rating){ toast("별점을 선택해 주세요."); return; }
+    if(!comment){ toast("감상평을 입력해 주세요."); return; }
+    var rvs=getR(bookId);
+    if(state.editingReviewId){
+      rvs=rvs.map(function(r){ return r.id===state.editingReviewId?Object.assign({},r,{rating:rating,comment:comment,updatedAt:Date.now()}):r; });
+      state.editingReviewId=null;
     } else {
-      reviews.push({
-        id: "rv_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
-        rating: rating, comment: comment, createdAt: Date.now(),
-      });
+      rvs.push({id:"rv_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),rating:rating,comment:comment,createdAt:Date.now()});
     }
-    setReviewsForBook(bookId, reviews);
-    state.pendingRating = 0;
-    renderReviewSection(bookId);
-    notify("리뷰가 저장되었습니다.");
+    setR(bookId,rvs); state.pendingRating=0; renderReviews(bookId); toast("리뷰가 저장되었습니다.");
+  };
+  window.startEditReview=function(bookId,rvId){ state.editingReviewId=rvId; renderReviews(bookId); var b=$id("write-review-block"); if(b) b.scrollIntoView({behavior:"smooth",block:"center"}); };
+  window.cancelEditReview=function(bookId){ state.editingReviewId=null; state.pendingRating=0; renderReviews(bookId); };
+  window.deleteReview=function(bookId,rvId){
+    if(!confirm("이 리뷰를 삭제하시겠습니까?")) return;
+    var rvs=getR(bookId).filter(function(r){ return r.id!==rvId; });
+    setR(bookId,rvs); if(state.editingReviewId===rvId) state.editingReviewId=null;
+    renderReviews(bookId); toast("리뷰가 삭제되었습니다.");
   };
 
-  window.startEditReview = function(bookId, reviewId) {
-    state.editingReviewId = reviewId;
-    renderReviewSection(bookId);
-    var block = el("write-review-block");
-    if (block) block.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  window.cancelEditReview = function(bookId) {
-    state.editingReviewId = null;
-    state.pendingRating   = 0;
-    renderReviewSection(bookId);
-  };
-
-  window.deleteReview = function(bookId, reviewId) {
-    if (!confirm("이 리뷰를 삭제하시겠습니까?")) return;
-    var reviews = getReviewsForBook(bookId).filter(function(r) { return r.id !== reviewId; });
-    setReviewsForBook(bookId, reviews);
-    if (state.editingReviewId === reviewId) state.editingReviewId = null;
-    renderReviewSection(bookId);
-    notify("리뷰가 삭제되었습니다.");
-  };
-
-  /* -------------------------------------------------------------------------
+  /* ==========================================================
    * 10. 초기화
-   * ----------------------------------------------------------------------- */
-  document.addEventListener("DOMContentLoaded", function() {
-    window.navigateTo("home");
-  });
-
+   * ======================================================== */
+  document.addEventListener("DOMContentLoaded", function(){ window.navigateTo("home"); });
 })();
+
