@@ -1,4 +1,3 @@
-
 /* ==========================================================================
    La Librairie — app.js (완전 수정판)
    로컬 100권 데이터로 모든 검색 & AI 추천 동작
@@ -240,34 +239,61 @@
   }
  
   /* ==========================================================
-   * 5. 로컬 검색 기능
+   * 5. 로컬 검색 기능 (개선)
    * ======================================================== */
   function searchLocalBooks(query, searchType) {
     var q = (query || "").trim().toLowerCase();
     if (!q) return [];
-    return PRESET_BOOKS.filter(function (book) {
-      var titleMatch = (book.title || "").toLowerCase().includes(q);
-      var authorsMatch = (book.authors || "").toLowerCase().includes(q);
-      var descriptionMatch = (book.description || "").toLowerCase().includes(q);
-      var categoriesMatch = (book.categories || []).some(function (cat) {
-        return cat.toLowerCase().includes(q);
+    
+    console.log("검색어:", q, "타입:", searchType, "전체 책 수:", PRESET_BOOKS.length);
+    
+    var results = PRESET_BOOKS.filter(function (book) {
+      var title = (book.title || "").toLowerCase();
+      var authors = (book.authors || "").toLowerCase();
+      var description = (book.description || "").toLowerCase();
+      var categories = (book.categories || []).map(function(c) { return c.toLowerCase(); });
+      
+      var titleMatch = title.includes(q);
+      var authorsMatch = authors.includes(q);
+      var descriptionMatch = description.includes(q);
+      var categoriesMatch = categories.some(function (cat) {
+        return cat.includes(q);
       });
-      if (searchType === "title") return titleMatch;
-      if (searchType === "author") return authorsMatch;
-      if (searchType === "genre") return categoriesMatch;
-      return titleMatch || authorsMatch || categoriesMatch || descriptionMatch;
+      
+      // 검색 타입별 필터링
+      if (searchType === "title") {
+        return titleMatch;
+      } else if (searchType === "author") {
+        return authorsMatch;
+      } else if (searchType === "genre") {
+        return categoriesMatch;
+      } else {
+        // "all" 또는 기본값: 모든 필드 검색
+        return titleMatch || authorsMatch || categoriesMatch || descriptionMatch;
+      }
     });
+    
+    console.log("검색 결과 수:", results.length);
+    return results;
   }
  
   /* ==========================================================
-   * 6. 검색 결과 렌더링
+   * 6. 검색 결과 렌더링 (개선)
    * ======================================================== */
   function renderResults(books, query) {
     var grid = $id("search-results-grid");
     var summary = $id("search-results-summary");
     var empty = $id("search-empty-state");
-    if (!grid) return;
-    if (!books.length) {
+    
+    if (!grid) {
+      console.error("search-results-grid를 찾을 수 없습니다");
+      return;
+    }
+    
+    console.log("렌더링하는 책 수:", books.length, "검색어:", query);
+    
+    // 결과가 없을 때
+    if (!books || books.length === 0) {
       grid.innerHTML = "";
       if (summary) summary.style.display = "none";
       if (empty) {
@@ -278,9 +304,23 @@
       }
       return;
     }
+    
+    // 결과가 있을 때
     if (empty) empty.style.display = "none";
-    books.forEach(function (b) { state.booksCache[b.id] = b; });
-    grid.innerHTML = books.map(function (b) { return cardHTML(b, null); }).join("");
+    
+    // 캐시에 추가
+    books.forEach(function (b) { 
+      if (b && b.id) state.booksCache[b.id] = b; 
+    });
+    
+    // 카드 렌더링
+    var html = books.map(function (b) { 
+      return cardHTML(b, null); 
+    }).join("");
+    
+    grid.innerHTML = html;
+    
+    // 요약 정보
     if (summary) {
       summary.textContent = "'" + query + "'에 대한 검색 결과 " + books.length + "건";
       summary.style.display = "block";
@@ -288,29 +328,55 @@
   }
  
   /* ==========================================================
-   * 7. 검색 핸들러
+   * 7. 검색 핸들러 (개선)
    * ======================================================== */
   window.handleSearch = function (e) {
     e.preventDefault();
-    var q = ($id("search-input") || {}).value || "";
-    var type = ($id("search-type") || {}).value || "all";
-    q = q.trim();
-    if (!q) { toast("검색어를 입력해 주세요."); return; }
+    var inputEl = $id("search-input");
+    var typeEl = $id("search-type");
+    
+    var q = (inputEl ? inputEl.value : "").trim();
+    var type = (typeEl ? typeEl.value : "all") || "all";
+    
+    console.log("handleSearch 호출 - 검색어:", q, "타입:", type);
+    
+    if (!q) { 
+      toast("검색어를 입력해 주세요."); 
+      return; 
+    }
+    
     showLoader("도서를 검색하고 있어요...");
     setTimeout(function () {
+      console.log("검색 실행 중...");
       var results = searchLocalBooks(q, type);
+      console.log("검색 완료, 결과:", results.length + "건");
       hideLoader();
       renderResults(results, q);
     }, 300);
   };
+  
   window.handleHomeSearch = function (e) {
     e.preventDefault();
-    var q = ($id("home-search-input") || {}).value || "";
-    q = q.trim();
-    if (!q) { toast("검색어를 입력해 주세요."); return; }
+    var inputEl = $id("home-search-input");
+    var q = (inputEl ? inputEl.value : "").trim();
+    
+    console.log("handleHomeSearch 호출 - 검색어:", q);
+    
+    if (!q) { 
+      toast("검색어를 입력해 주세요."); 
+      return; 
+    }
+    
+    // 검색 탭으로 이동
     window.navigateTo("search");
-    if ($id("search-input")) $id("search-input").value = q;
-    if ($id("search-type")) $id("search-type").value = "all";
+    
+    // 검색 입력창 동기화
+    var searchInput = $id("search-input");
+    var searchType = $id("search-type");
+    if (searchInput) searchInput.value = q;
+    if (searchType) searchType.value = "all";
+    
+    // 검색 실행
     window.handleSearch({ preventDefault: function () {} });
   };
  
@@ -425,5 +491,5 @@
     window.navigateTo("home");
   });
 })();
-    {
+ 
 
