@@ -80,7 +80,15 @@
     state.activeView=id;
     window.scrollTo({top:0,behavior:"smooth"});
   }
-  window.navigateTo = function(id) { showView(id); if(id!=="book-detail") state.lastMainView=id; };
+  window.navigateTo = function(id) {
+    showView(id);
+    if(id!=="book-detail") state.lastMainView=id;
+    /* 검색 탭 첫 진입 시 기본 도서 자동 로드 */
+    if(id==="search"){
+      var grid=$id("search-results-grid");
+      if(grid && !grid.children.length && !pg.busy) loadDefaultBooks();
+    }
+  };
   window.navigateBack = function() { showView(state.lastMainView||"home"); };
 
   /* ==========================================================
@@ -529,8 +537,61 @@
   };
 
   /* ==========================================================
-   * 10. 초기화
+   * 10. 기본 도서 로드 (검색 페이지 첫 진입 시)
+   * ======================================================== */
+  var DEFAULT_QUERIES = [
+    "한강 소설",
+    "김영하 소설",
+    "베스트셀러 자기계발",
+    "인문학 철학 추천",
+    "역사 교양 도서",
+    "과학 에세이 추천",
+    "무라카미 하루키",
+    "세계 고전 문학",
+    "헤르만 헤세",
+    "Albert Camus novel"
+  ];
+
+  function loadDefaultBooks() {
+    pg.busy = true;
+    var sum=$id("search-results-summary");
+    if(sum){ sum.textContent="라 리브레리 추천 도서를 불러오는 중..."; sum.style.display="block"; }
+    var grid=$id("search-results-grid"); if(grid) grid.innerHTML="";
+    var wrap=$id("load-more-wrap"); if(wrap) wrap.style.display="none";
+    var seen={}, total=0, qi=0;
+
+    function next(){
+      if(qi >= DEFAULT_QUERIES.length){
+        pg.busy=false;
+        if(sum){
+          sum.textContent="라 리브레리 추천 도서 "+total+"권";
+          sum.style.display="block";
+        }
+        return;
+      }
+      var query=DEFAULT_QUERIES[qi++];
+      setTimeout(function(){
+        safeFetch(query, 0).then(function(r){
+          var fresh=r.items.filter(function(b){
+            if(seen[b.id]) return false;
+            seen[b.id]=true; state.booksCache[b.id]=b; return true;
+          });
+          if(fresh.length){
+            appendCards(fresh, true);
+            total+=fresh.length;
+            if(sum){ sum.textContent="라 리브레리 추천 도서 "+total+"권"; }
+          }
+          next();
+        });
+      }, qi===1 ? 0 : 350);
+    }
+    next();
+  }
+
+  /* ==========================================================
+   * 11. 초기화
    * ======================================================== */
   document.addEventListener("DOMContentLoaded", function(){ window.navigateTo("home"); });
 })();
+
 
