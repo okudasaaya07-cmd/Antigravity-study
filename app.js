@@ -669,27 +669,125 @@
       sum.style.display="block";
     }
   }
-// ===== 제목, 작가, 장르 검색 기능 추가 =====
-function filterBooksByKeyword(books, keyword) {
-  const q = keyword.trim().toLowerCase();
+/* ==========================
+   고급 검색 및 추천 시스템
+   ========================== */
+
+// 책에 키워드 자동 생성
+function enrichBookData(book) {
+  if (!book.keywords) {
+    book.keywords = [];
+  }
+
+  // 장르를 키워드에 추가
+  if (Array.isArray(book.categories)) {
+    book.keywords.push(...book.categories);
+  }
+
+  // 설명에서 자주 쓰이는 단어 추출
+  if (book.description) {
+    const words = book.description
+      .toLowerCase()
+      .replace(/[^\w\s가-힣]/g, "")
+      .split(/\s+/)
+      .filter(word => word.length >= 2);
+
+    book.keywords.push(...words);
+  }
+
+  // 중복 제거
+  book.keywords = [...new Set(book.keywords)];
+
+  return book;
+}
+
+
+// 제목 + 작가 + 장르 + 설명 + 키워드 검색
+function advancedSearch(books, query) {
+  const q = query.trim().toLowerCase();
 
   return books.filter(book => {
-    const title = (book.title || "").toLowerCase();
 
-    const authors = Array.isArray(book.authors)
-      ? book.authors.join(" ").toLowerCase()
-      : "";
+    const title =
+      (book.title || "").toLowerCase();
 
-    const categories = Array.isArray(book.categories)
-      ? book.categories.join(" ").toLowerCase()
-      : "";
+    const authors =
+      Array.isArray(book.authors)
+        ? book.authors.join(" ").toLowerCase()
+        : "";
+
+    const categories =
+      Array.isArray(book.categories)
+        ? book.categories.join(" ").toLowerCase()
+        : "";
+
+    const description =
+      (book.description || "").toLowerCase();
+
+    const keywords =
+      Array.isArray(book.keywords)
+        ? book.keywords.join(" ").toLowerCase()
+        : "";
 
     return (
       title.includes(q) ||
       authors.includes(q) ||
-      categories.includes(q)
+      categories.includes(q) ||
+      description.includes(q) ||
+      keywords.includes(q)
     );
   });
+}
+
+
+// 비슷한 책 추천
+function recommendBooks(selectedBook, allBooks, limit = 6) {
+
+  const selectedCategories =
+    selectedBook.categories || [];
+
+  const selectedKeywords =
+    selectedBook.keywords || [];
+
+  const recommendations = allBooks
+    .filter(book => book.id !== selectedBook.id)
+    .map(book => {
+
+      let score = 0;
+
+      // 같은 장르면 높은 점수
+      if (book.categories) {
+        book.categories.forEach(category => {
+          if (selectedCategories.includes(category)) {
+            score += 10;
+          }
+        });
+      }
+
+      // 키워드가 겹치면 점수 추가
+      if (book.keywords) {
+        book.keywords.forEach(keyword => {
+          if (selectedKeywords.includes(keyword)) {
+            score += 1;
+          }
+        });
+      }
+
+      return {
+        ...book,
+        score
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return recommendations;
+}
+
+
+// 전체 책 데이터 전처리
+function prepareBooks(books) {
+  return books.map(enrichBookData);
 }
   /* ==========================================================
    * 11. 초기화
