@@ -537,55 +537,137 @@
   };
 
   /* ==========================================================
-   * 10. 기본 도서 로드 (검색 페이지 첫 진입 시)
+   * 10. 기본 도서 100권 (API 불필요 — 항상 표시)
    * ======================================================== */
-  var DEFAULT_QUERIES = [
-    "한강 소설",
-    "김영하 소설",
-    "베스트셀러 자기계발",
-    "인문학 철학 추천",
-    "역사 교양 도서",
-    "과학 에세이 추천",
-    "무라카미 하루키",
-    "세계 고전 문학",
-    "헤르만 헤세",
-    "Albert Camus novel"
+  var OL = "https://covers.openlibrary.org/b/isbn/";
+  var PRESET_BOOKS = [
+    /* ── 한국 현대소설 ── */
+    {id:"p01",title:"채식주의자",authors:"한강",publishedDate:"2007",categories:["소설"],description:"육식을 거부하는 한 여성을 통해 인간의 폭력성과 욕망을 탐구한 맨부커상 수상작.",thumbnail:OL+"9788932025895-M.jpg"},
+    {id:"p02",title:"소년이 온다",authors:"한강",publishedDate:"2014",categories:["소설"],description:"1980년 5월 광주를 배경으로, 살아남은 자의 죄책감과 비극을 섬세하게 그린 소설.",thumbnail:OL+"9788936434120-M.jpg"},
+    {id:"p03",title:"작별하지 않는다",authors:"한강",publishedDate:"2021",categories:["소설"],description:"제주 4·3 사건을 배경으로 죽은 자와 산 자가 나누는 기억에 관한 이야기.",thumbnail:OL+"9788936434625-M.jpg"},
+    {id:"p04",title:"흰",authors:"한강",publishedDate:"2016",categories:["소설"],description:"하얀 것들에 대한 65개의 단상으로 이루어진 한강의 산문소설.",thumbnail:OL+"9788936434182-M.jpg"},
+    {id:"p05",title:"82년생 김지영",authors:"조남주",publishedDate:"2016",categories:["소설"],description:"1982년생 평범한 여성의 삶을 통해 한국 사회의 성차별을 날카롭게 조명한 소설.",thumbnail:OL+"9788960402683-M.jpg"},
+    {id:"p06",title:"아몬드",authors:"손원평",publishedDate:"2017",categories:["소설"],description:"감정을 느끼지 못하는 소년 윤재의 성장과 우정을 그린 이야기.",thumbnail:OL+"9788954656795-M.jpg"},
+    {id:"p07",title:"달러구트 꿈 백화점",authors:"이미예",publishedDate:"2020",categories:["소설"],description:"잠든 사람들의 꿈을 판매하는 신비로운 백화점을 배경으로 한 판타지 소설.",thumbnail:OL+"9791130625454-M.jpg"},
+    {id:"p08",title:"불편한 편의점",authors:"김호연",publishedDate:"2022",categories:["소설"],description:"사람들이 모이는 편의점을 배경으로 따뜻한 인간관계를 그린 힐링 소설.",thumbnail:OL+"9791165348366-M.jpg"},
+    {id:"p09",title:"7년의 밤",authors:"정유정",publishedDate:"2011",categories:["소설"],description:"한 사고가 두 가족을 7년에 걸쳐 어떻게 파멸시키는지를 그린 스릴러.",thumbnail:OL+"9788954608152-M.jpg"},
+    {id:"p10",title:"종의 기원",authors:"정유정",publishedDate:"2016",categories:["소설"],description:"인간의 본성과 악의 기원을 탐구하는 심리 스릴러.",thumbnail:OL+"9788954630108-M.jpg"},
+    {id:"p11",title:"파친코",authors:"이민진",publishedDate:"2017",categories:["소설"],description:"일제강점기부터 현대까지 4대에 걸친 재일조선인 가족의 서사.",thumbnail:OL+"9780316346627-M.jpg"},
+    {id:"p12",title:"하얼빈",authors:"김훈",publishedDate:"2022",categories:["소설"],description:"안중근 의사의 이토 히로부미 저격까지의 여정을 담은 역사소설.",thumbnail:OL+"9788936434601-M.jpg"},
+    {id:"p13",title:"완득이",authors:"김려령",publishedDate:"2008",categories:["소설"],description:"가난하고 고단한 환경에서도 당당하게 성장해가는 소년 완득이의 이야기.",thumbnail:OL+"9788993242423-M.jpg"},
+    {id:"p14",title:"우리들의 일그러진 영웅",authors:"이문열",publishedDate:"1987",categories:["소설"],description:"초등학교 교실을 배경으로 권력의 속성을 날카롭게 파헤친 이문열의 대표작.",thumbnail:OL+"9788974748098-M.jpg"},
+    {id:"p15",title:"한국이 싫어서",authors:"장강명",publishedDate:"2015",categories:["소설"],description:"한국 사회를 떠나 이민을 결심한 젊은 여성의 이야기.",thumbnail:OL+"9788936434434-M.jpg"},
+    {id:"p16",title:"죽고 싶지만 떡볶이는 먹고 싶어",authors:"백세희",publishedDate:"2018",categories:["에세이"],description:"기분부전장애를 앓는 저자와 정신과 의사의 대화를 담은 에세이.",thumbnail:OL+"9791188490417-M.jpg"},
+    {id:"p17",title:"언어의 온도",authors:"이기주",publishedDate:"2016",categories:["에세이"],description:"언어가 지닌 힘과 온기에 대한 섬세한 글들을 담은 에세이.",thumbnail:OL+"9791186659205-M.jpg"},
+    {id:"p18",title:"나는 나로 살기로 했다",authors:"김수현",publishedDate:"2016",categories:["에세이"],description:"지친 현대인에게 자신을 사랑하는 법을 전하는 에세이.",thumbnail:OL+"9791159471056-M.jpg"},
+    {id:"p19",title:"아버지의 해방일지",authors:"정지아",publishedDate:"2022",categories:["소설"],description:"빨치산 출신 아버지와 그 가족의 삶을 그린 감동적인 소설.",thumbnail:OL+"9788936434618-M.jpg"},
+    {id:"p20",title:"천 개의 파랑",authors:"천선란",publishedDate:"2020",categories:["SF","소설"],description:"다친 기수 대신 경마에 나서는 로봇 기수를 통해 감정과 존재를 탐구하는 SF.",thumbnail:OL+"9791191211467-M.jpg"},
+    /* ── 일본 소설 ── */
+    {id:"p21",title:"노르웨이의 숲",authors:"무라카미 하루키",publishedDate:"1987",categories:["소설"],description:"1960년대 도쿄를 배경으로 상실과 성장, 사랑을 담담하게 그린 하루키의 대표작.",thumbnail:OL+"9788937460685-M.jpg"},
+    {id:"p22",title:"나미야 잡화점의 기적",authors:"히가시노 게이고",publishedDate:"2012",categories:["소설"],description:"시간을 초월한 편지로 연결되는 사람들의 이야기를 그린 감동 소설.",thumbnail:OL+"9788933864371-M.jpg"},
+    {id:"p23",title:"용의자 X의 헌신",authors:"히가시노 게이고",publishedDate:"2005",categories:["추리"],description:"완벽한 알리바이 뒤에 숨겨진 천재의 헌신을 그린 추리소설.",thumbnail:OL+"9788937462443-M.jpg"},
+    {id:"p24",title:"인간 실격",authors:"다자이 오사무",publishedDate:"1948",categories:["소설"],description:"인간으로서의 자격을 잃어가는 한 남자의 고백체 소설.",thumbnail:OL+"9788936460358-M.jpg"},
+    {id:"p25",title:"설국",authors:"가와바타 야스나리",publishedDate:"1948",categories:["소설"],description:"눈 덮인 온천 마을에서 펼쳐지는 아름답고 쓸쓸한 사랑 이야기.",thumbnail:OL+"9788937462344-M.jpg"},
+    {id:"p26",title:"세상의 끝과 하드보일드 원더랜드",authors:"무라카미 하루키",publishedDate:"1985",categories:["소설","SF"],description:"두 개의 평행한 세계를 오가는 하루키 특유의 독창적인 장편소설.",thumbnail:OL+"9788937461118-M.jpg"},
+    {id:"p27",title:"1Q84",authors:"무라카미 하루키",publishedDate:"2009",categories:["소설"],description:"1984년과 다른 달이 두 개인 세계, 1Q84에서 펼쳐지는 두 남녀의 운명적 이야기.",thumbnail:OL+"9788937461026-M.jpg"},
+    {id:"p28",title:"나는 고양이로소이다",authors:"나쓰메 소세키",publishedDate:"1905",categories:["소설"],description:"고양이의 시선으로 메이지 시대 일본 지식인 사회를 풍자한 소설.",thumbnail:OL+"9788934980940-M.jpg"},
+    {id:"p29",title:"도련님",authors:"나쓰메 소세키",publishedDate:"1906",categories:["소설"],description:"도쿄 출신 청년 교사가 시골 학교에서 겪는 좌충우돌을 그린 소설.",thumbnail:OL+"9788937460562-M.jpg"},
+    {id:"p30",title:"악의",authors:"히가시노 게이고",publishedDate:"1996",categories:["추리"],description:"범인을 처음부터 밝히지만 진짜 동기가 무엇인지를 추적하는 역발상 추리소설.",thumbnail:OL+"9788937462450-M.jpg"},
+    /* ── 서양 고전 ── */
+    {id:"p31",title:"어린 왕자",authors:"앙투안 드 생텍쥐페리",publishedDate:"1943",categories:["소설"],description:"사막에 불시착한 조종사와 어린 왕자의 만남을 통해 삶의 본질을 이야기하는 작품.",thumbnail:OL+"9788937460678-M.jpg"},
+    {id:"p32",title:"데미안",authors:"헤르만 헤세",publishedDate:"1919",categories:["소설"],description:"자아를 찾아가는 에밀 싱클레어의 성장 이야기.",thumbnail:OL+"9788937460555-M.jpg"},
+    {id:"p33",title:"수레바퀴 아래서",authors:"헤르만 헤세",publishedDate:"1906",categories:["소설"],description:"시대의 압박 속에서 짓눌리는 한 소년의 비극적 성장을 그린 소설.",thumbnail:OL+"9788937460524-M.jpg"},
+    {id:"p34",title:"싯다르타",authors:"헤르만 헤세",publishedDate:"1922",categories:["소설","철학"],description:"깨달음을 찾아 떠나는 젊은 브라만 싯다르타의 정신적 여정.",thumbnail:OL+"9788937460517-M.jpg"},
+    {id:"p35",title:"이방인",authors:"알베르 카뮈",publishedDate:"1942",categories:["소설","철학"],description:"태양 때문에 살인을 저지른 뫼르소를 통해 부조리를 탐구한 카뮈의 대표작.",thumbnail:OL+"9788937460623-M.jpg"},
+    {id:"p36",title:"페스트",authors:"알베르 카뮈",publishedDate:"1947",categories:["소설","철학"],description:"전염병이 창궐한 도시에서 인간의 연대와 고독을 그린 카뮈의 걸작.",thumbnail:OL+"9788936432003-M.jpg"},
+    {id:"p37",title:"오만과 편견",authors:"제인 오스틴",publishedDate:"1813",categories:["소설"],description:"엘리자베스 베넷과 다아시의 사랑을 통해 18세기 영국 사회를 풍자한 소설.",thumbnail:OL+"9788937460296-M.jpg"},
+    {id:"p38",title:"위대한 개츠비",authors:"F. 스콧 피츠제럴드",publishedDate:"1925",categories:["소설"],description:"재즈 시대 미국의 화려함과 허무함을 담은 미국 문학의 고전.",thumbnail:OL+"9788937460357-M.jpg"},
+    {id:"p39",title:"1984",authors:"조지 오웰",publishedDate:"1949",categories:["소설","SF"],description:"전체주의 사회의 공포를 그린 디스토피아 소설의 고전.",thumbnail:OL+"9788937460630-M.jpg"},
+    {id:"p40",title:"동물농장",authors:"조지 오웰",publishedDate:"1945",categories:["소설"],description:"동물들의 혁명을 통해 권력의 부패와 전체주의를 풍자한 우화.",thumbnail:OL+"9788937460609-M.jpg"},
+    {id:"p41",title:"호밀밭의 파수꾼",authors:"J.D. 샐린저",publishedDate:"1951",categories:["소설"],description:"학교에서 쫓겨난 10대 소년 홀든 콜필드의 방황과 내면을 그린 소설.",thumbnail:OL+"9788937460548-M.jpg"},
+    {id:"p42",title:"죄와 벌",authors:"표도르 도스토예프스키",publishedDate:"1866",categories:["소설"],description:"가난한 대학생 라스콜리니코프의 살인과 그 이후의 심리를 그린 심리소설.",thumbnail:OL+"9788937462269-M.jpg"},
+    {id:"p43",title:"변신",authors:"프란츠 카프카",publishedDate:"1915",categories:["소설"],description:"어느 날 아침 거대한 벌레로 변해버린 그레고르 잠자의 이야기.",thumbnail:OL+"9788937460531-M.jpg"},
+    {id:"p44",title:"노인과 바다",authors:"어니스트 헤밍웨이",publishedDate:"1952",categories:["소설"],description:"늙은 어부 산티아고와 거대한 청새치의 사투를 담은 퓰리처상 수상작.",thumbnail:OL+"9788937460593-M.jpg"},
+    {id:"p45",title:"제인 에어",authors:"샬럿 브론테",publishedDate:"1847",categories:["소설"],description:"고아 출신 여성 제인 에어의 자립과 사랑을 그린 고전 로맨스.",thumbnail:OL+"9788937460272-M.jpg"},
+    {id:"p46",title:"폭풍의 언덕",authors:"에밀리 브론테",publishedDate:"1847",categories:["소설"],description:"히스클리프와 캐서린의 파멸적인 사랑을 그린 영국 문학의 걸작.",thumbnail:OL+"9788937460289-M.jpg"},
+    {id:"p47",title:"백년의 고독",authors:"가브리엘 가르시아 마르케스",publishedDate:"1967",categories:["소설"],description:"부엔디아 가문의 7대에 걸친 이야기를 마술적 사실주의로 그린 노벨문학상 수상작.",thumbnail:OL+"9788985175166-M.jpg"},
+    {id:"p48",title:"연금술사",authors:"파울로 코엘료",publishedDate:"1988",categories:["소설"],description:"자신의 꿈을 찾아 여행을 떠나는 양치기 소년 산티아고의 이야기.",thumbnail:OL+"9788934969235-M.jpg"},
+    {id:"p49",title:"80일간의 세계일주",authors:"쥘 베른",publishedDate:"1872",categories:["소설"],description:"필리어스 포그가 80일 안에 세계를 일주하는 내기를 떠나는 모험소설.",thumbnail:OL+"9788937460326-M.jpg"},
+    {id:"p50",title:"몬테크리스토 백작",authors:"알렉상드르 뒤마",publishedDate:"1844",categories:["소설"],description:"억울하게 누명을 쓴 에드몽 당테스의 복수를 그린 대하모험소설.",thumbnail:OL+"9788937460234-M.jpg"},
+    /* ── 인문/철학 ── */
+    {id:"p51",title:"사피엔스",authors:"유발 노아 하라리",publishedDate:"2011",categories:["역사","인문"],description:"인류의 탄생부터 현재까지를 거시적 관점으로 분석한 세계적 베스트셀러.",thumbnail:OL+"9788934972464-M.jpg"},
+    {id:"p52",title:"호모 데우스",authors:"유발 노아 하라리",publishedDate:"2015",categories:["역사","인문"],description:"인류의 미래와 신이 되려는 호모 사피엔스의 욕망을 탐구한 책.",thumbnail:OL+"9788934982753-M.jpg"},
+    {id:"p53",title:"21세기를 위한 21가지 제언",authors:"유발 노아 하라리",publishedDate:"2018",categories:["인문"],description:"오늘날 인류가 직면한 21가지 핵심 문제를 다룬 유발 하라리의 세 번째 작품.",thumbnail:OL+"9788934985464-M.jpg"},
+    {id:"p54",title:"총균쇠",authors:"재레드 다이아몬드",publishedDate:"1997",categories:["역사","과학"],description:"왜 어떤 문명은 번성하고 어떤 문명은 정복당했는가를 과학적으로 분석한 책.",thumbnail:OL+"9788936434014-M.jpg"},
+    {id:"p55",title:"정의란 무엇인가",authors:"마이클 샌델",publishedDate:"2009",categories:["철학"],description:"공정함과 정의에 대한 근본적인 질문을 던지는 하버드 철학 강의.",thumbnail:OL+"9788925539928-M.jpg"},
+    {id:"p56",title:"자유로부터의 도피",authors:"에리히 프롬",publishedDate:"1941",categories:["철학","심리"],description:"현대인이 자유를 두려워하고 권위에 복종하는 심리를 분석한 명저.",thumbnail:OL+"9788932019611-M.jpg"},
+    {id:"p57",title:"사랑의 기술",authors:"에리히 프롬",publishedDate:"1956",categories:["철학","심리"],description:"사랑은 감정이 아니라 실천이자 기술임을 역설하는 프롬의 대표작.",thumbnail:OL+"9788932019635-M.jpg"},
+    {id:"p58",title:"군주론",authors:"니콜로 마키아벨리",publishedDate:"1532",categories:["철학","정치"],description:"권력 유지를 위한 현실적 정치술을 논한 르네상스 시대의 고전.",thumbnail:OL+"9788937460173-M.jpg"},
+    {id:"p59",title:"소크라테스의 변명",authors:"플라톤",publishedDate:"-399",categories:["철학"],description:"죽음 앞에서도 철학적 신념을 굽히지 않은 소크라테스의 마지막 변론.",thumbnail:OL+"9788937460128-M.jpg"},
+    {id:"p60",title:"니코마코스 윤리학",authors:"아리스토텔레스",publishedDate:"-350",categories:["철학"],description:"행복이란 무엇인가에 대해 탐구하는 아리스토텔레스의 윤리학 강의록.",thumbnail:OL+"9788937460135-M.jpg"},
+    /* ── 자기계발 ── */
+    {id:"p61",title:"아주 작은 습관의 힘",authors:"제임스 클리어",publishedDate:"2018",categories:["자기계발"],description:"1%의 작은 변화가 어떻게 삶을 바꾸는지를 설명하는 습관 형성 가이드.",thumbnail:OL+"9791191891027-M.jpg"},
+    {id:"p62",title:"그릿",authors:"앤절라 더크워스",publishedDate:"2016",categories:["자기계발","심리"],description:"재능보다 열정과 끈기가 성공을 만든다는 그릿(GRIT) 이론을 다룬 책.",thumbnail:OL+"9788991769342-M.jpg"},
+    {id:"p63",title:"미라클 모닝",authors:"할 엘로드",publishedDate:"2012",categories:["자기계발"],description:"아침 1시간이 인생을 바꾼다는 모닝 루틴의 힘을 담은 자기계발서.",thumbnail:OL+"9791186659021-M.jpg"},
+    {id:"p64",title:"원씽",authors:"게리 켈러",publishedDate:"2013",categories:["자기계발"],description:"지금 당장 해야 할 단 하나의 일에 집중하는 삶의 방법을 담은 책.",thumbnail:OL+"9788996817536-M.jpg"},
+    {id:"p65",title:"데일 카네기 인간관계론",authors:"데일 카네기",publishedDate:"1936",categories:["자기계발"],description:"사람을 움직이고 좋은 관계를 맺는 법칙을 담은 자기계발의 고전.",thumbnail:OL+"9788996281634-M.jpg"},
+    {id:"p66",title:"부자 아빠 가난한 아빠",authors:"로버트 기요사키",publishedDate:"1997",categories:["자기계발","경제"],description:"돈에 대한 통념을 깨고 경제적 자유를 얻는 방법을 알려주는 재테크 필독서.",thumbnail:OL+"9788929701200-M.jpg"},
+    {id:"p67",title:"유혹하는 글쓰기",authors:"스티븐 킹",publishedDate:"2000",categories:["자기계발"],description:"스릴러 거장 스티븐 킹이 직접 쓴 글쓰기의 모든 것.",thumbnail:OL+"9788987050362-M.jpg"},
+    {id:"p68",title:"몰입",authors:"미하이 칙센트미하이",publishedDate:"1990",categories:["심리","자기계발"],description:"완전히 빠져드는 경험 '몰입(Flow)'의 조건과 행복의 심리학.",thumbnail:OL+"9788971900482-M.jpg"},
+    {id:"p69",title:"생각에 관한 생각",authors:"대니얼 카너먼",publishedDate:"2011",categories:["심리","과학"],description:"인간의 두 가지 사고 시스템과 인지 편향을 탁월하게 분석한 행동경제학 명저.",thumbnail:OL+"9788934970354-M.jpg"},
+    {id:"p70",title:"넛지",authors:"리처드 세일러, 캐스 선스타인",publishedDate:"2008",categories:["심리","경제"],description:"부드러운 개입으로 사람들의 선택을 개선하는 넛지 이론.",thumbnail:OL+"9788984071964-M.jpg"},
+    /* ── 과학 ── */
+    {id:"p71",title:"코스모스",authors:"칼 세이건",publishedDate:"1980",categories:["과학"],description:"우주의 기원부터 생명의 진화까지 장대한 우주의 역사를 담은 과학 고전.",thumbnail:OL+"9788983711892-M.jpg"},
+    {id:"p72",title:"이기적 유전자",authors:"리처드 도킨스",publishedDate:"1976",categories:["과학"],description:"유전자의 관점에서 생명의 진화를 설명하는 진화생물학의 고전.",thumbnail:OL+"9788932459189-M.jpg"},
+    {id:"p73",title:"짧고 쉽게 쓴 시간의 역사",authors:"스티븐 호킹",publishedDate:"1988",categories:["과학"],description:"블랙홀, 빅뱅, 시간의 화살 등 우주의 본질을 쉽게 설명한 과학서.",thumbnail:OL+"9788983717108-M.jpg"},
+    {id:"p74",title:"페르마의 마지막 정리",authors:"사이먼 싱",publishedDate:"1997",categories:["과학","수학"],description:"358년간 미해결로 남았던 수학 난제가 풀리기까지의 흥미진진한 이야기.",thumbnail:OL+"9788983710857-M.jpg"},
+    {id:"p75",title:"총균쇠 2",authors:"재레드 다이아몬드",publishedDate:"1997",categories:["과학","역사"],description:"문명의 붕괴 원인을 생태학적으로 분석한 재레드 다이아몬드의 속편.",thumbnail:OL+"9788937460999-M.jpg"},
+    {id:"p76",title:"만들어진 신",authors:"리처드 도킨스",publishedDate:"2006",categories:["과학","철학"],description:"종교의 허구성을 과학적 증거로 논박하는 도킨스의 도전적인 저작.",thumbnail:OL+"9788932458687-M.jpg"},
+    {id:"p77",title:"파인만의 여섯 가지 물리 이야기",authors:"리처드 파인만",publishedDate:"1994",categories:["과학"],description:"노벨물리학상 수상자 파인만이 일반인을 위해 강의한 물리학 입문서.",thumbnail:OL+"9788983711496-M.jpg"},
+    {id:"p78",title:"엔드 오브 타임",authors:"브라이언 그린",publishedDate:"2020",categories:["과학"],description:"우주의 시작과 끝, 그리고 생명과 의식의 의미를 탐구하는 현대 물리학서.",thumbnail:OL+"9791160028164-M.jpg"},
+    {id:"p79",title:"뇌의 배신",authors:"로버트 버튼",publishedDate:"2008",categories:["과학","심리"],description:"뇌가 우리를 어떻게 속이는지를 신경과학으로 풀어낸 책.",thumbnail:OL+"9788986361698-M.jpg"},
+    {id:"p80",title:"왜 세계의 절반은 굶주리는가",authors:"장 지글러",publishedDate:"1999",categories:["사회","과학"],description:"세계 기아 문제의 구조적 원인을 아버지와 아들의 대화로 풀어낸 책.",thumbnail:OL+"9788984940963-M.jpg"},
+    /* ── 역사/사회 ── */
+    {id:"p81",title:"군중심리",authors:"귀스타브 르봉",publishedDate:"1895",categories:["심리","사회"],description:"군중의 심리와 행동 원리를 분석한 사회심리학의 고전.",thumbnail:OL+"9788934975403-M.jpg"},
+    {id:"p82",title:"설득의 심리학",authors:"로버트 치알디니",publishedDate:"1984",categories:["심리","자기계발"],description:"인간을 설득하는 6가지 원칙을 사례와 함께 설명한 심리학 베스트셀러.",thumbnail:OL+"9788959134212-M.jpg"},
+    {id:"p83",title:"총 균 쇠 (개정판)",authors:"재레드 다이아몬드",publishedDate:"2005",categories:["역사"],description:"인류 문명의 불균형 발전을 설명하는 환경결정론의 결정판.",thumbnail:OL+"9788937460999-M.jpg"},
+    {id:"p84",title:"역사란 무엇인가",authors:"E. H. 카",publishedDate:"1961",categories:["역사","인문"],description:"역사와 역사가의 관계, 역사적 진실이란 무엇인지를 탐구한 역사철학 명저.",thumbnail:OL+"9788934975007-M.jpg"},
+    {id:"p85",title:"대항해시대",authors:"주경철",publishedDate:"2008",categories:["역사"],description:"15~17세기 포르투갈과 스페인의 탐험이 세계를 어떻게 바꾸었는지를 서술한 역사서.",thumbnail:OL+"9788996093053-M.jpg"},
+    {id:"p86",title:"오래된 미래",authors:"헬레나 노르베리-호지",publishedDate:"1991",categories:["사회","환경"],description:"인도 라다크 문명을 통해 현대 문명의 문제점을 성찰하는 책.",thumbnail:OL+"9788985989299-M.jpg"},
+    {id:"p87",title:"침묵의 봄",authors:"레이철 카슨",publishedDate:"1962",categories:["환경","과학"],description:"살충제 남용이 생태계에 미치는 영향을 경고하며 환경운동을 촉발한 명저.",thumbnail:OL+"9788937460999-M.jpg"},
+    {id:"p88",title:"작은 것이 아름답다",authors:"E. F. 슈마허",publishedDate:"1973",categories:["경제","사회"],description:"인간 중심의 소규모 경제를 제안한 대안 경제학의 고전.",thumbnail:OL+"9788984940079-M.jpg"},
+    {id:"p89",title:"월든",authors:"헨리 데이비드 소로",publishedDate:"1854",categories:["에세이","철학"],description:"숲 속 오두막에서 2년간 자급자족하며 단순한 삶을 실험한 소로의 기록.",thumbnail:OL+"9788937460142-M.jpg"},
+    {id:"p90",title:"자본론 1",authors:"카를 마르크스",publishedDate:"1867",categories:["경제","철학"],description:"자본주의 경제의 구조와 모순을 분석한 사상사 최대의 문제작.",thumbnail:OL+"9788993537048-M.jpg"},
+    /* ── 세계 베스트셀러 ── */
+    {id:"p91",title:"해리 포터와 마법사의 돌",authors:"J.K. 롤링",publishedDate:"1997",categories:["판타지","소설"],description:"마법사 학교 호그와트에서 펼쳐지는 해리 포터의 첫 번째 모험.",thumbnail:OL+"9788983920317-M.jpg"},
+    {id:"p92",title:"반지의 제왕",authors:"J.R.R. 톨킨",publishedDate:"1954",categories:["판타지","소설"],description:"절대 반지를 둘러싼 선과 악의 거대한 전쟁을 그린 판타지 문학의 원점.",thumbnail:OL+"9788937460555-M.jpg"},
+    {id:"p93",title:"다빈치 코드",authors:"댄 브라운",publishedDate:"2003",categories:["추리","소설"],description:"레오나르도 다빈치의 작품에 숨겨진 기독교 역사의 비밀을 추적하는 스릴러.",thumbnail:OL+"9788937460616-M.jpg"},
+    {id:"p94",title:"파우스트",authors:"요한 볼프강 폰 괴테",publishedDate:"1808",categories:["고전","희곡"],description:"인간의 욕망과 구원을 악마와의 계약으로 탐구한 독일 문학의 최고봉.",thumbnail:OL+"9788937460197-M.jpg"},
+    {id:"p95",title:"돈키호테",authors:"미겔 데 세르반테스",publishedDate:"1605",categories:["고전","소설"],description:"기사소설에 빠진 라만차의 귀족 돈키호테의 우스꽝스럽고도 감동적인 모험.",thumbnail:OL+"9788937460227-M.jpg"},
+    {id:"p96",title:"신곡",authors:"단테 알리기에리",publishedDate:"1320",categories:["고전","시"],description:"지옥·연옥·천국을 여행하며 인간의 죄와 구원을 노래한 이탈리아 문학의 최고작.",thumbnail:OL+"9788937460197-M.jpg"},
+    {id:"p97",title:"일리아스",authors:"호메로스",publishedDate:"-750",categories:["고전","시"],description:"트로이 전쟁 마지막 해를 배경으로 아킬레우스의 분노를 노래한 서사시.",thumbnail:OL+"9788937460159-M.jpg"},
+    {id:"p98",title:"오디세이아",authors:"호메로스",publishedDate:"-750",categories:["고전","시"],description:"트로이 전쟁 후 고향 이타카로 돌아가는 오디세우스의 10년 여정.",thumbnail:OL+"9788937460166-M.jpg"},
+    {id:"p99",title:"앵무새 죽이기",authors:"하퍼 리",publishedDate:"1960",categories:["소설"],description:"인종차별이 심한 미국 남부를 배경으로 한 소녀의 눈으로 본 정의와 양심의 이야기.",thumbnail:OL+"9788937460586-M.jpg"},
+    {id:"p100",title:"파친코",authors:"이민진",publishedDate:"2017",categories:["소설"],description:"일제강점기부터 1980년대까지 재일조선인 4대 가족의 삶을 그린 장편소설.",thumbnail:OL+"9788996984863-M.jpg"},
   ];
 
   function loadDefaultBooks() {
-    pg.busy = true;
+    /* API 호출 없이 바로 렌더링 */
     var sum=$id("search-results-summary");
-    if(sum){ sum.textContent="라 리브레리 추천 도서를 불러오는 중..."; sum.style.display="block"; }
-    var grid=$id("search-results-grid"); if(grid) grid.innerHTML="";
-    var wrap=$id("load-more-wrap"); if(wrap) wrap.style.display="none";
-    var seen={}, total=0, qi=0;
+    var grid=$id("search-results-grid");
+    var wrap=$id("load-more-wrap");
+    if(!grid) return;
 
-    function next(){
-      if(qi >= DEFAULT_QUERIES.length){
-        pg.busy=false;
-        if(sum){
-          sum.textContent="라 리브레리 추천 도서 "+total+"권";
-          sum.style.display="block";
-        }
-        return;
-      }
-      var query=DEFAULT_QUERIES[qi++];
-      setTimeout(function(){
-        safeFetch(query, 0).then(function(r){
-          var fresh=r.items.filter(function(b){
-            if(seen[b.id]) return false;
-            seen[b.id]=true; state.booksCache[b.id]=b; return true;
-          });
-          if(fresh.length){
-            appendCards(fresh, true);
-            total+=fresh.length;
-            if(sum){ sum.textContent="라 리브레리 추천 도서 "+total+"권"; }
-          }
-          next();
-        });
-      }, qi===1 ? 0 : 350);
+    grid.innerHTML="";
+    if(wrap) wrap.style.display="none";
+
+    PRESET_BOOKS.forEach(function(b){ state.booksCache[b.id]=b; });
+    appendCards(PRESET_BOOKS, false);
+
+    if(sum){
+      sum.textContent="라 리브레리 추천 도서 "+PRESET_BOOKS.length+"권";
+      sum.style.display="block";
     }
-    next();
   }
 
   /* ==========================================================
