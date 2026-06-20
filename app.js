@@ -669,7 +669,28 @@
       sum.style.display="block";
     }
   }
+// ===== 제목, 작가, 장르 검색 기능 추가 =====
+function filterBooksByKeyword(books, keyword) {
+  const q = keyword.trim().toLowerCase();
 
+  return books.filter(book => {
+    const title = (book.title || "").toLowerCase();
+
+    const authors = Array.isArray(book.authors)
+      ? book.authors.join(" ").toLowerCase()
+      : "";
+
+    const categories = Array.isArray(book.categories)
+      ? book.categories.join(" ").toLowerCase()
+      : "";
+
+    return (
+      title.includes(q) ||
+      authors.includes(q) ||
+      categories.includes(q)
+    );
+  });
+}
   /* ==========================================================
    * 11. 초기화
    * ======================================================== */
