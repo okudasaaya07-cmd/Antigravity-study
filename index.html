@@ -4,50 +4,44 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>라 리브레리 (La Librairie) - AI 책 추천 서비스</title>
-  <meta name="description" content="당신만을 위한 깊이 있고 우아한 AI 도서 큐레이션 서비스. 300권 이상의 명저에서 맞춤 추천을 받아보세요.">
+  <meta name="description" content="당신만을 위한 깊이 있고 우아한 AI 도서 큐레이션 서비스.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23D4AF37'%3E%3Cpath d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E" />
-
-  <!-- Google Fonts: Song Myung, Nanum Myeongjo & Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Song+Myung&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- Navigation bar -->
+  <!-- Navigation -->
   <nav class="navbar">
     <div class="container navbar-inner">
       <a onclick="navigateTo('home')" class="brand" style="cursor:pointer">
         La Librairie <span>📖</span>
       </a>
       <div class="nav-links">
-        <a onclick="navigateTo('home')" class="nav-link nav-tab" id="tab-home">홈</a>
-        <a onclick="navigateTo('search')" class="nav-link nav-tab" id="tab-search">도서 검색</a>
+        <a onclick="navigateTo('home')"      class="nav-link nav-tab" id="tab-home">홈</a>
+        <a onclick="navigateTo('search')"    class="nav-link nav-tab" id="tab-search">도서 검색</a>
         <a onclick="navigateTo('recommend')" class="nav-link nav-tab" id="tab-recommend">AI 맞춤 추천</a>
       </div>
     </div>
   </nav>
 
   <!-- Global Loader -->
-  <div id="global-loader" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(250,249,246,0.7); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">
+  <div id="global-loader" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(250,249,246,0.85); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">
     <div class="loading-spinner"></div>
     <p id="loader-message" style="color:var(--color-gold-dark); font-style:italic; margin-top:10px;"></p>
   </div>
 
-  <!-- Main Content Areas -->
   <main style="flex-grow:1;">
 
-    <!-- ==================== 1. HOME VIEW ==================== -->
+    <!-- ===== 1. HOME ===== -->
     <div id="view-home" class="view-section container active">
       <header class="text-center" style="padding:100px 0 60px;">
         <p style="letter-spacing:0.2em; font-size:13px; color:var(--color-gold-dark); text-transform:uppercase; margin-bottom:16px; font-weight:700;">
           CLIENT-SIDE AI BOOK CURATION SERVICE
         </p>
-        <h1 style="font-size:48px; font-weight:800; line-height:1.2; margin-bottom:10px;">
-          La Librairie
-        </h1>
+        <h1 style="font-size:48px; font-weight:800; line-height:1.2; margin-bottom:10px;">La Librairie</h1>
         <h2 style="font-size:20px; font-weight:400; color:var(--color-text-secondary); font-style:italic;">
           당신만을 위한 깊이 있고 우아한 서재
         </h2>
@@ -56,23 +50,14 @@
           독특한 취향과 예술적 선호를 분석해 당신의 마음에 닿는 책을 찾습니다.<br>
           인공지능과 세밀한 키워드 필터가 빚어내는 개인 맞춤형 문학 여행을 시작해보세요.
         </p>
-
-        <!-- Home Search Bar -->
         <form onsubmit="handleHomeSearch(event)" style="max-width:640px; margin:0 auto; display:flex; gap:8px;">
-          <input
-            type="text"
-            id="home-search-input"
-            class="form-control"
+          <input type="text" id="home-search-input" class="form-control"
             placeholder="도서 제목, 작가, 또는 장르를 검색해보세요..."
-            style="padding:16px 24px; font-size:16px; border-radius:2px; box-shadow:var(--shadow-subtle); background-color:var(--color-white);"
-          />
-          <button type="submit" class="btn btn-primary" style="padding:0 32px; font-size:16px; white-space:nowrap;">
-            검색
-          </button>
+            style="padding:16px 24px; font-size:16px; border-radius:2px; box-shadow:var(--shadow-subtle); background-color:var(--color-white);" />
+          <button type="submit" class="btn btn-primary" style="padding:0 32px; font-size:16px; white-space:nowrap;">검색</button>
         </form>
       </header>
 
-      <!-- Services Grid -->
       <section style="padding:60px 0;">
         <h3 class="text-center" style="font-size:24px; margin-bottom:40px;">제공하는 서비스</h3>
         <div class="grid-3">
@@ -84,7 +69,6 @@
             </p>
             <a onclick="navigateTo('recommend')" class="btn btn-gold" style="width:100%;">추천받기</a>
           </div>
-
           <div class="card" style="padding:40px 32px; display:flex; flex-direction:column; align-items:center; text-align:center;">
             <span style="font-size:40px; margin-bottom:20px;">🔍</span>
             <h4 style="font-size:20px; margin-bottom:12px;">풍부한 도서 검색</h4>
@@ -93,7 +77,6 @@
             </p>
             <a onclick="navigateTo('search')" class="btn btn-secondary" style="width:100%;">검색 시작</a>
           </div>
-
           <div class="card" style="padding:40px 32px; display:flex; flex-direction:column; align-items:center; text-align:center;">
             <span style="font-size:40px; margin-bottom:20px;">✍️</span>
             <h4 style="font-size:20px; margin-bottom:12px;">평점 및 리뷰 남기기</h4>
@@ -105,7 +88,6 @@
         </div>
       </section>
 
-      <!-- Quote Banner -->
       <section style="margin:80px 0; padding:60px; background-color:var(--color-bg-secondary); border-left:4px solid var(--color-gold); text-align:center;">
         <p style="font-size:20px; font-style:italic; color:var(--color-text-primary); margin-bottom:12px; line-height:1.8;">
           "독서란 다른 사람의 생각을 내 머릿속으로 하는 여행이며,<br>
@@ -115,7 +97,7 @@
       </section>
     </div>
 
-    <!-- ==================== 2. SEARCH VIEW ==================== -->
+    <!-- ===== 2. SEARCH ===== -->
     <div id="view-search" class="view-section container">
       <div class="section-padding">
         <div style="margin-bottom:40px;">
@@ -126,7 +108,6 @@
           <div class="gold-decor left" style="width:40px;"></div>
         </div>
 
-        <!-- Search form -->
         <form onsubmit="handleSearch(event)" style="display:flex; gap:12px; margin-bottom:40px; background-color:var(--color-bg-secondary); padding:20px; border-radius:3px; border:1px solid var(--color-border); flex-wrap:wrap;">
           <div style="min-width:150px; flex:1 0 150px;">
             <select id="search-type" class="form-control" style="height:48px; cursor:pointer;">
@@ -137,24 +118,29 @@
             </select>
           </div>
           <div style="flex:3 0 300px; display:flex; gap:8px;">
-            <input type="text" id="search-input" class="form-control" placeholder="검색어를 입력해 주세요..." style="height:48px; background-color:var(--color-white);" />
+            <input type="text" id="search-input" class="form-control"
+              placeholder="검색어를 입력해 주세요..."
+              style="height:48px; background-color:var(--color-white);" />
             <button type="submit" class="btn btn-primary" style="height:48px; padding:0 28px;">검색</button>
           </div>
         </form>
 
-        <!-- Results -->
+        <!-- 결과 요약 -->
         <div id="search-results-summary" style="font-size:14px; color:var(--color-text-secondary); margin-bottom:20px; display:none;"></div>
 
+        <!-- 결과 그리드 -->
         <div id="search-results-grid" class="grid-3"></div>
 
-        <!-- ★ 더 불러오기 버튼 (추가된 부분) -->
-        <div id="load-more-wrap" style="display:none; text-align:center; margin-top:40px; padding-bottom:20px;">
-          <button id="load-more-btn" class="btn btn-secondary" style="padding:14px 48px; font-size:15px;" onclick="loadMoreResults()">
+        <!-- ★ 더 불러오기 버튼 ★ -->
+        <div id="load-more-wrap" style="display:none; text-align:center; margin-top:40px; padding-bottom:24px;">
+          <button id="load-more-btn" class="btn btn-secondary"
+                  style="padding:14px 48px; font-size:15px;"
+                  onclick="loadMoreResults()">
             더 불러오기
           </button>
         </div>
 
-        <!-- Empty state -->
+        <!-- 검색 결과 없음 -->
         <div id="search-empty-state" class="text-center" style="padding:60px 0; background-color:var(--color-white); border:1px solid var(--color-border); border-radius:3px; display:none;">
           <span style="font-size:40px; display:block; margin-bottom:16px;">📭</span>
           <p style="font-size:16px; color:var(--color-text-secondary);">해당 도서를 서재에서 찾지 못했습니다.</p>
@@ -163,7 +149,7 @@
       </div>
     </div>
 
-    <!-- ==================== 3. AI RECOMMEND VIEW ==================== -->
+    <!-- ===== 3. AI RECOMMEND ===== -->
     <div id="view-recommend" class="view-section container">
       <div class="section-padding">
         <div style="margin-bottom:40px;">
@@ -176,23 +162,20 @@
 
         <div id="recommend-form-wrapper">
           <form onsubmit="handleRecommendation(event)" class="card" style="padding:40px; background-color:var(--color-white); border:1px solid var(--color-border);">
-
-            <!-- 1. 장르 선택 -->
             <div style="margin-bottom:32px;">
               <label class="form-label" style="margin-bottom:14px;">1. 선호 장르 선택 (중복 가능)</label>
               <div class="genre-card-grid">
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '소설')">소설</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '인문/철학')">인문/철학</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '역사')">역사</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '과학/IT')">과학/IT</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '시/에세이')">시/에세이</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '자기계발/심리')">자기계발/심리</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, 'SF/판타지')">SF/판타지</button>
-                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this, '추리/미스터리')">추리/미스터리</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'소설')">소설</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'인문/철학')">인문/철학</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'역사')">역사</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'과학/IT')">과학/IT</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'시/에세이')">시/에세이</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'자기계발/심리')">자기계발/심리</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'SF/판타지')">SF/판타지</button>
+                <button type="button" class="genre-select-btn" onclick="toggleGenreSelection(this,'추리/미스터리')">추리/미스터리</button>
               </div>
             </div>
 
-            <!-- 2. 키워드 -->
             <div class="form-group" style="margin-bottom:32px;">
               <label class="form-label">2. 마음에 머무는 생각 / 원하는 키워드</label>
               <textarea id="recommend-keywords" class="form-control" rows="4"
@@ -200,7 +183,6 @@
                 style="resize:none; line-height:1.7; padding:16px; background-color:var(--color-bg-primary);"></textarea>
             </div>
 
-            <!-- 3. 독서 정취 -->
             <div class="form-group" style="margin-bottom:40px;">
               <label class="form-label">3. 선호하는 독서의 정취</label>
               <select id="recommend-style" class="form-control" style="height:48px; cursor:pointer; background-color:var(--color-bg-primary);">
@@ -219,7 +201,6 @@
           </form>
         </div>
 
-        <!-- Recommendation results -->
         <div id="recommend-results-wrapper" style="display:none;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; flex-wrap:wrap; gap:16px;">
             <p style="font-size:15px; color:var(--color-text-secondary); margin:0;">
@@ -234,19 +215,15 @@
       </div>
     </div>
 
-    <!-- ==================== 4. BOOK DETAIL VIEW ==================== -->
+    <!-- ===== 4. BOOK DETAIL ===== -->
     <div id="view-book-detail" class="view-section container">
       <div class="section-padding">
-
-        <!-- Back button -->
         <button onclick="navigateBack()" class="btn btn-secondary" style="margin-bottom:32px; padding:8px 16px; font-size:14px;">
           ← 뒤로 가기
         </button>
 
-        <!-- Book detail grid -->
         <div id="book-detail-card" style="display:grid; grid-template-columns:minmax(250px,300px) 1fr; gap:48px; margin-bottom:60px; align-items:start;"></div>
 
-        <!-- Reviews section -->
         <section style="border-top:1px solid var(--color-border); padding-top:60px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:40px; flex-wrap:wrap; gap:16px;">
             <div>
@@ -255,7 +232,6 @@
                 라 리브레리 독자들이 작성한 고품격 감상평입니다.
               </p>
             </div>
-            <!-- Average rating -->
             <div style="display:flex; align-items:center; gap:12px; background-color:var(--color-bg-secondary); padding:12px 24px; border-radius:3px; border:1px solid var(--color-border);">
               <span id="detail-avg-rating" style="font-size:32px; font-weight:800; color:var(--color-gold-dark);">0.0</span>
               <div>
@@ -264,11 +240,7 @@
               </div>
             </div>
           </div>
-
-          <!-- Write review -->
           <div id="write-review-block" style="margin-bottom:40px;"></div>
-
-          <!-- Reviews list -->
           <div id="reviews-list-container" style="display:flex; flex-direction:column; gap:24px;"></div>
         </section>
       </div>
@@ -276,19 +248,15 @@
 
   </main>
 
-  <!-- Footer -->
   <footer>
     <div class="container">
-      <p style="margin-bottom:8px;">
-        La Librairie &copy; 2026. All Rights Reserved.
-      </p>
-      <p style="font-size:12px; color:var(--color-text-tertiary);">
-        AI Book Recommendation Client Application with Myeongjo Serif.
-      </p>
+      <p style="margin-bottom:8px;">La Librairie &copy; 2026. All Rights Reserved.</p>
+      <p style="font-size:12px; color:var(--color-text-tertiary);">AI Book Recommendation Client Application with Myeongjo Serif.</p>
     </div>
   </footer>
 
   <script src="app.js"></script>
 </body>
 </html>
+
  
