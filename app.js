@@ -12,17 +12,27 @@
    * 0. 전역 상태
    * ------------------------------------------------------------------- */
   const state = {
-    activeView: "home",      // 현재 화면에 보이는 view (home/search/recommend/book-detail)
-    lastMainView: "home",    // 상세보기 진입 전 마지막 메인 탭 (뒤로가기용)
+    activeView: "home",
+    lastMainView: "home",
     selectedGenres: new Set(),
-    booksCache: {},           // { [bookId]: normalizedBook }
+    booksCache: {},
     currentDetailBookId: null,
     editingReviewId: null,
-    pendingRating: 0,         // 리뷰 작성 폼의 임시 별점
+    pendingRating: 0,
+
+    /* 검색 페이지네이션 상태 */
+    currentQuery: "",
+    currentSearchType: "",
+    currentPage: 0,      // 0-based (0 = 첫 번째 페이지)
+    hasMoreResults: false,
+    isLoadingMore: false,
   };
 
   const REVIEWS_KEY = "laLibrairieReviews_v1";
   const BOOKS_API = "https://www.googleapis.com/books/v1/volumes";
+  const PAGE_SIZE = 40;          // Google Books API 허용 최대 maxResults
+  const INITIAL_PAGES = 3;       // 첫 검색 시 동시에 가져올 페이지 수 (3 × 40 = 120)
+  const LOAD_MORE_PAGES = 2;     // "더 불러오기" 클릭 시 가져올 페이지 수 (2 × 40 = 80)
 
   /* ---------------------------------------------------------------------
    * 1. 공통 유틸
@@ -119,7 +129,6 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // index.html 의 onclick="navigateTo('home'|'search'|'recommend')" 에서 호출됨
   window.navigateTo = function (viewId) {
     showView(viewId);
     if (viewId !== "book-detail") {
@@ -127,7 +136,6 @@
     }
   };
 
-  // 도서 상세 화면의 "← 뒤로 가기" 버튼에서 호출됨
   window.navigateBack = function () {
     showView(state.lastMainView || "home");
   };
@@ -155,16 +163,63 @@
     };
   }
 
+  /**
+   * 단일 페이지 요청 (startIndex 지원)
+   */
   async function searchBooksRaw(query, opts = {}) {
     const params = new URLSearchParams({ q: query });
-    params.set("maxResults", String(opts.maxResults || 20));
+    params.set("maxResults", String(Math.min(opts.maxResults || PAGE_SIZE, 40)));
+    params.set("startIndex", String(opts.startIndex || 0));
     if (opts.langRestrict) params.set("langRestrict", opts.langRestrict);
     if (opts.orderBy) params.set("orderBy", opts.orderBy);
 
     const res = await fetch(`${BOOKS_API}?${params.toString()}`);
     if (!res.ok) throw new Error("Google Books API 요청 실패: " + res.status);
     const data = await res.json();
-    return (data.items || []).map(normalizeBookItem);
+    const items = (data.items || []).map(normalizeBookItem);
+    const totalItems = data.totalItems || 0;
+    return { items, totalItems };
+  }
+
+  /**
+   * 여러 페이지를 병렬로 가져와서 중복 제거 후 합칩니다.
+   * @param {string} query
+   * @param {{ startPage?: number, pages?: number, langRestrict?: string, orderBy?: string }} opts
+   * @returns {{ books: NormalizedBook[], totalItems: number }}
+   */
+  async function searchBooksMultiPage(query, opts = {}) {
+    const startPage = opts.startPage || 0;
+    const pages = opts.pages || INITIAL_PAGES;
+
+    const requests = [];
+    for (let i = 0; i < pages; i++) {
+      const startIndex = (startPage + i) * PAGE_SIZE;
+      requests.push(
+        searchBooksRaw(query, {
+          maxResults: PAGE_SIZE,
+          startIndex,
+          langRestrict: opts.langRestrict,
+          orderBy: opts.orderBy,
+        }).catch(() => ({ items: [], totalItems: 0 }))
+      );
+    }
+
+    const results = await Promise.all(requests);
+    const totalItems = results[0]?.totalItems || 0;
+
+    // 중복 제거 (id 기준)
+    const seen = new Set();
+    const books = [];
+    for (const { items } of results) {
+      for (const book of items) {
+        if (!seen.has(book.id)) {
+          seen.add(book.id);
+          books.push(book);
+        }
+      }
+    }
+
+    return { books, totalItems };
   }
 
   async function fetchBookById(id) {
@@ -215,35 +270,78 @@
     if (ps[1]) ps[1].textContent = line2;
   }
 
-  function renderSearchResults(results, query) {
+  /**
+   * 검색 결과를 그리드에 렌더링합니다.
+   * @param {object[]} books        - 이번에 추가할 도서 목록
+   * @param {string}   query        - 검색어 (요약 문구에 사용)
+   * @param {number}   totalItems   - API가 보고한 전체 결과 수
+   * @param {boolean}  append       - true면 기존 결과에 이어붙임, false면 초기화
+   */
+  function renderSearchResults(books, query, totalItems, append) {
     const grid = document.getElementById("search-results-grid");
     const summary = document.getElementById("search-results-summary");
     const empty = document.getElementById("search-empty-state");
+    const loadMoreWrapper = document.getElementById("search-load-more-wrapper");
 
-    if (!results.length) {
+    if (!books.length && !append) {
       grid.innerHTML = "";
       summary.style.display = "none";
       setEmptyStateText("해당 도서를 서재에서 찾지 못했습니다.", "다른 키워드로 검색해 보세요.");
       empty.style.display = "block";
+      if (loadMoreWrapper) loadMoreWrapper.style.display = "none";
       return;
     }
 
     empty.style.display = "none";
     summary.style.display = "block";
-    summary.textContent = `'${query}'에 대한 검색 결과 ${results.length}건`;
-    grid.innerHTML = results.map((b) => bookCardHTML(b)).join("");
+
+    if (append) {
+      grid.insertAdjacentHTML("beforeend", books.map((b) => bookCardHTML(b)).join(""));
+    } else {
+      grid.innerHTML = books.map((b) => bookCardHTML(b)).join("");
+    }
+
+    // 현재 화면에 표시된 카드 수
+    const shownCount = grid.querySelectorAll(".card").length;
+    summary.textContent = `'${query}'에 대한 검색 결과 ${shownCount}건 (전체 약 ${totalItems.toLocaleString()}건)`;
+
+    // "더 불러오기" 버튼 표시 여부 결정
+    // 다음 페이지 시작 인덱스가 totalItems보다 작으면 더 가져올 수 있음
+    const nextStartIndex = state.currentPage * PAGE_SIZE;
+    state.hasMoreResults = nextStartIndex < totalItems && nextStartIndex < 500; // API 실질 한계 ~500
+
+    if (loadMoreWrapper) {
+      loadMoreWrapper.style.display = state.hasMoreResults ? "flex" : "none";
+    }
   }
 
   function renderSearchError() {
     const grid = document.getElementById("search-results-grid");
     const summary = document.getElementById("search-results-summary");
     const empty = document.getElementById("search-empty-state");
+    const loadMoreWrapper = document.getElementById("search-load-more-wrapper");
     grid.innerHTML = "";
     summary.style.display = "none";
     setEmptyStateText("도서 정보를 불러오는 중 문제가 발생했습니다.", "잠시 후 다시 시도해 주세요.");
     empty.style.display = "block";
+    if (loadMoreWrapper) loadMoreWrapper.style.display = "none";
   }
 
+  /**
+   * 검색 쿼리를 API용 q 파라미터로 변환합니다.
+   */
+  function buildApiQuery(rawQuery, type) {
+    switch (type) {
+      case "title":  return `intitle:${rawQuery}`;
+      case "author": return `inauthor:${rawQuery}`;
+      case "genre":  return `subject:${rawQuery}`;
+      default:       return rawQuery;
+    }
+  }
+
+  /**
+   * 새로운 검색을 시작합니다 (결과 초기화 후 첫 페이지 로드).
+   */
   async function performSearch(rawQuery, type) {
     const query = (rawQuery || "").trim();
     if (!query) {
@@ -251,25 +349,21 @@
       return;
     }
 
+    // 상태 초기화
+    state.currentQuery = query;
+    state.currentSearchType = type;
+    state.currentPage = INITIAL_PAGES;  // 다음 로드는 INITIAL_PAGES 페이지부터
+    state.hasMoreResults = false;
+
     showLoader("도서를 검색하고 있어요...");
     try {
-      let q;
-      switch (type) {
-        case "title":
-          q = `intitle:${query}`;
-          break;
-        case "author":
-          q = `inauthor:${query}`;
-          break;
-        case "genre":
-          q = `subject:${query}`;
-          break;
-        default:
-          q = query;
-      }
-      const results = await searchBooksRaw(q, { maxResults: 24 });
-      results.forEach((b) => (state.booksCache[b.id] = b));
-      renderSearchResults(results, query);
+      const apiQuery = buildApiQuery(query, type);
+      const { books, totalItems } = await searchBooksMultiPage(apiQuery, {
+        startPage: 0,
+        pages: INITIAL_PAGES,
+      });
+      books.forEach((b) => (state.booksCache[b.id] = b));
+      renderSearchResults(books, query, totalItems, false);
     } catch (err) {
       console.error(err);
       renderSearchError();
@@ -277,6 +371,57 @@
       hideLoader();
     }
   }
+
+  /**
+   * "더 불러오기" 버튼 클릭 시 다음 페이지들을 추가로 가져옵니다.
+   * index.html의 "더 불러오기" 버튼에서 onclick="loadMoreResults()" 로 호출.
+   */
+  window.loadMoreResults = async function () {
+    if (state.isLoadingMore || !state.hasMoreResults) return;
+    state.isLoadingMore = true;
+
+    const btn = document.getElementById("search-load-more-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "불러오는 중...";
+    }
+
+    try {
+      const apiQuery = buildApiQuery(state.currentQuery, state.currentSearchType);
+      const { books, totalItems } = await searchBooksMultiPage(apiQuery, {
+        startPage: state.currentPage,
+        pages: LOAD_MORE_PAGES,
+      });
+
+      // 이미 캐시에 있는 (= 이미 표시된) 책 제외
+      const newBooks = books.filter((b) => {
+        if (state.booksCache[b.id]) return false;
+        state.booksCache[b.id] = b;
+        return true;
+      });
+
+      state.currentPage += LOAD_MORE_PAGES;
+
+      if (newBooks.length) {
+        renderSearchResults(newBooks, state.currentQuery, totalItems, true);
+      } else {
+        // 새 책이 없으면 더 이상 없음으로 처리
+        state.hasMoreResults = false;
+        const loadMoreWrapper = document.getElementById("search-load-more-wrapper");
+        if (loadMoreWrapper) loadMoreWrapper.style.display = "none";
+        notify("더 이상 불러올 도서가 없습니다.");
+      }
+    } catch (err) {
+      console.error(err);
+      notify("추가 도서를 불러오는 중 문제가 발생했습니다.");
+    } finally {
+      state.isLoadingMore = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "더 불러오기";
+      }
+    }
+  };
 
   // index.html 검색 화면 폼: onsubmit="handleSearch(event)"
   window.handleSearch = function (event) {
@@ -305,8 +450,6 @@
   /* ---------------------------------------------------------------------
    * 6. AI 맞춤 책 추천
    * ------------------------------------------------------------------- */
-
-  // index.html 장르 버튼: onclick="toggleGenreSelection(this, '소설')"
   window.toggleGenreSelection = function (btn, genre) {
     if (state.selectedGenres.has(genre)) {
       state.selectedGenres.delete(genre);
@@ -336,14 +479,21 @@
     }
 
     const resultsArrays = await Promise.all(
-      queries.map((q) => searchBooksRaw(q, { maxResults: 12, langRestrict: "ko" }).catch(() => []))
+      queries.map((q) =>
+        searchBooksRaw(q, { maxResults: 40, startIndex: 0, langRestrict: "ko" }).catch(() => ({
+          items: [],
+          totalItems: 0,
+        }))
+      )
     );
 
     const all = {};
     const withThumb = {};
-    resultsArrays.flat().forEach((b) => {
-      all[b.id] = b;
-      if (b.thumbnail) withThumb[b.id] = b;
+    resultsArrays.forEach(({ items }) => {
+      items.forEach((b) => {
+        all[b.id] = b;
+        if (b.thumbnail) withThumb[b.id] = b;
+      });
     });
 
     const pool = Object.values(withThumb);
@@ -361,7 +511,6 @@
     return templates[index % templates.length]();
   }
 
-  // index.html 추천 폼: onsubmit="handleRecommendation(event)"
   window.handleRecommendation = async function (event) {
     event.preventDefault();
     const genres = Array.from(state.selectedGenres);
@@ -400,7 +549,6 @@
     }
   };
 
-  // index.html "다시 추천받기" 버튼: onclick="resetRecommendations()"
   window.resetRecommendations = function () {
     document.getElementById("recommend-results-wrapper").style.display = "none";
     document.getElementById("recommend-form-wrapper").style.display = "block";
@@ -433,7 +581,6 @@
       </div>`;
   }
 
-  // 검색/추천 결과 카드 + 추후 다른 곳에서도 호출 가능: showBookDetail(id)
   window.showBookDetail = async function (id) {
     state.currentDetailBookId = id;
     showView("book-detail");
