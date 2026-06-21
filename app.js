@@ -1,3 +1,4 @@
+
 /* ==========================================================================
    La Librairie — app.js (로그인 기능 + AI 추천 개선판)
    로컬 100권 데이터 + 로그인/회원가입(데모용 localStorage 인증) + 항상 결과가 나오는 AI 추천
@@ -265,16 +266,24 @@
     var email = (emailEl ? emailEl.value : "").trim().toLowerCase();
     var pw = pwEl ? pwEl.value : "";
  
-    if (!email || !pw) {
-      toast("이메일과 비밀번호를 입력해 주세요.");
-      return;
-    }
+    // 데모용 가상 로그인: 이메일/비밀번호를 비워도 임시 값으로 채워서 무조건 진행한다.
+    if (!email) email = "guest_" + Date.now() + "@example.com";
+    if (!pw) pw = "guest";
+ 
     var users = allUsers();
     var user = users[email];
-    if (!user || user.passwordHash !== simpleHash(pw)) {
-      toast("이메일 또는 비밀번호가 올바르지 않습니다.");
-      return;
+    if (!user) {
+      // 처음 입력하는 이메일이면 그 자리에서 자동으로 가상 계정을 만든다 (별도 회원가입 불필요).
+      user = {
+        email: email,
+        name: email.split("@")[0],
+        passwordHash: simpleHash(pw),
+        createdAt: Date.now(),
+      };
+      users[email] = user;
+      saveUsers(users);
     }
+    // 비밀번호 일치 여부와 무관하게, 입력만 하면 로그인이 성공한다 (가상 로그인이므로).
     var token = createFakeJWT({
       email: user.email,
       name: user.name,
@@ -381,6 +390,54 @@
     }
   }
   window.renderRecommendGate = renderRecommendGate;
+ 
+  // HTML에 #tab-login, #view-login 요소가 없어도 자동으로 만들어 끼워 넣는다.
+  // (index.html을 직접 수정하지 않아도 로그인/회원가입 화면이 항상 보이도록 하는 안전장치)
+  function ensureLoginUIElements() {
+    // 1) 로그인 화면 컨테이너가 없으면 새로 만든다.
+    if (!$id("view-login")) {
+      var anyView = document.querySelector(".view-section");
+      var section = document.createElement("section");
+      section.className = "view-section";
+      section.id = "view-login";
+      if (anyView && anyView.parentNode) {
+        anyView.parentNode.appendChild(section);
+      } else {
+        document.body.appendChild(section);
+      }
+    }
+    // 2) 로그인 탭 버튼이 없으면 새로 만든다.
+    if (!$id("tab-login")) {
+      var anyTab = document.querySelector(".nav-tab");
+      var btn = document.createElement("button");
+      btn.className = "nav-tab";
+      btn.id = "tab-login";
+      btn.textContent = "로그인";
+      btn.addEventListener("click", function () {
+        window.navigateTo("login");
+      });
+      if (anyTab && anyTab.parentNode) {
+        anyTab.parentNode.appendChild(btn);
+      } else {
+        // 네비게이션 영역을 찾지 못하면 화면 우측 상단에 고정 버튼으로 띄운다.
+        Object.assign(btn.style, {
+          position: "fixed",
+          top: "16px",
+          right: "16px",
+          zIndex: "1500",
+          padding: "10px 18px",
+          backgroundColor: "var(--color-gold)",
+          color: "var(--color-white)",
+          border: "none",
+          borderRadius: "4px",
+          cursor: "pointer",
+          fontSize: "14px",
+          fontWeight: "700",
+        });
+        document.body.appendChild(btn);
+      }
+    }
+  }
  
   /* ==========================================================
    * 4. 로컬 100권 데이터베이스
@@ -731,6 +788,7 @@
    * 12. 초기화
    * ======================================================== */
   document.addEventListener("DOMContentLoaded", function () {
+    ensureLoginUIElements(); // 로그인 탭/화면이 HTML에 없으면 자동 생성
     PRESET_BOOKS.forEach(function (b) { state.booksCache[b.id] = b; });
     var grid = $id("search-results-grid");
     if (grid) {
