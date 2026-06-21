@@ -1,6 +1,6 @@
 /* ==========================================================================
-   La Librairie — app.js (완전 수정판)
-   로컬 100권 데이터로 모든 검색 & AI 추천 동작
+   La Librairie — app.js (로그인 기능 + AI 추천 개선판)
+   로컬 100권 데이터 + 로그인/회원가입(데모용 localStorage 인증) + 항상 결과가 나오는 AI 추천
    ========================================================================== */
 (function () {
   "use strict";
@@ -15,9 +15,13 @@
     booksCache: {},
     editingReviewId: null,
     pendingRating: 0,
+    currentUser: null,
   };
  
   var REVIEWS_KEY = "laLibrairieReviews_v1";
+  var USERS_KEY = "laLibrairieUsers_v1";
+  var AUTH_TOKEN_KEY = "laLibrairieAuthToken_v1";
+  var TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7일
   var OL = "https://covers.openlibrary.org/b/isbn/";
  
   /* ==========================================================
@@ -117,13 +121,269 @@
   window.navigateTo = function (id) {
     showView(id);
     if (id !== "book-detail") state.lastMainView = id;
+    // 로그인/AI추천 화면으로 이동할 때마다 최신 로그인 상태를 반영해 다시 그려준다.
+    if (id === "login") renderLoginView(false);
+    if (id === "recommend") renderRecommendGate();
   };
   window.navigateBack = function () {
     showView(state.lastMainView || "home");
   };
  
   /* ==========================================================
-   * 3. 로컬 100권 데이터베이스
+   * 3. 사용자 인증 (로그인 / 회원가입)
+   * ----------------------------------------------------------
+   * 주의: 이 사이트는 GitHub Pages 정적 호스팅이라 서버가 없습니다.
+   * 그래서 "DB"는 브라우저의 localStorage로, "JWT"는 진짜 서버
+   * 서명 없이 구조만 흉내 낸 데모용 토큰입니다. 실제 서비스라면
+   * Firebase Auth / Supabase / 자체 백엔드(Node+DB) 같은 진짜
+   * 인증 서버가 반드시 필요합니다. 비밀번호도 정식 암호화가
+   * 아니므로 실제 운영에는 사용하지 마세요.
+   * ======================================================== */
+  function allUsers() {
+    try {
+      return JSON.parse(localStorage.getItem(USERS_KEY)) || {};
+    } catch (_) {
+      return {};
+    }
+  }
+  function saveUsers(data) {
+    try {
+      localStorage.setItem(USERS_KEY, JSON.stringify(data));
+    } catch (_) {}
+  }
+ 
+  // 데모용 비가역 해시 (실제 암호화 알고리즘이 아님 — 보안 목적 X)
+  function simpleHash(str) {
+    var h = 0;
+    str = String(str);
+    for (var i = 0; i < str.length; i++) {
+      h = (h << 5) - h + str.charCodeAt(i);
+      h |= 0;
+    }
+    return "h" + Math.abs(h).toString(36) + str.length;
+  }
+ 
+  function b64encodeUnicode(str) {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+  function b64decodeUnicode(str) {
+    return decodeURIComponent(escape(atob(str)));
+  }
+ 
+  // header.payload.signature 구조만 흉내 낸 데모용 토큰 (서버 비밀키 서명 아님)
+  function createFakeJWT(payload) {
+    var header = { alg: "demo-none", typ: "JWT" };
+    var encHeader = b64encodeUnicode(JSON.stringify(header));
+    var encPayload = b64encodeUnicode(JSON.stringify(payload));
+    var signature = simpleHash(encHeader + "." + encPayload + ".la-librairie-demo-secret");
+    return encHeader + "." + encPayload + "." + signature;
+  }
+  function decodeFakeJWT(token) {
+    try {
+      var parts = String(token).split(".");
+      if (parts.length !== 3) return null;
+      var expected = simpleHash(parts[0] + "." + parts[1] + ".la-librairie-demo-secret");
+      if (expected !== parts[2]) return null;
+      var payload = JSON.parse(b64decodeUnicode(parts[1]));
+      if (payload.exp && Date.now() > payload.exp) return null;
+      return payload;
+    } catch (_) {
+      return null;
+    }
+  }
+ 
+  function emailValid(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+ 
+  // 로그인 여부 확인 + state.currentUser 갱신
+  function isLoggedIn() {
+    var token = null;
+    try {
+      token = localStorage.getItem(AUTH_TOKEN_KEY);
+    } catch (_) {}
+    if (!token) {
+      state.currentUser = null;
+      return false;
+    }
+    var payload = decodeFakeJWT(token);
+    if (!payload) {
+      try {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+      } catch (_) {}
+      state.currentUser = null;
+      return false;
+    }
+    state.currentUser = { email: payload.email, name: payload.name };
+    return true;
+  }
+ 
+  window.handleSignup = function (e) {
+    e.preventDefault();
+    var emailEl = $id("signup-email"),
+      pwEl = $id("signup-password"),
+      pw2El = $id("signup-password-confirm"),
+      nameEl = $id("signup-name");
+    var email = (emailEl ? emailEl.value : "").trim().toLowerCase();
+    var pw = pwEl ? pwEl.value : "";
+    var pw2 = pw2El ? pw2El.value : "";
+    var name = (nameEl ? nameEl.value : "").trim();
+ 
+    if (!emailValid(email)) {
+      toast("올바른 이메일 형식을 입력해 주세요.");
+      return;
+    }
+    if (pw.length < 6) {
+      toast("비밀번호는 6자 이상이어야 합니다.");
+      return;
+    }
+    if (pw !== pw2) {
+      toast("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+    var users = allUsers();
+    if (users[email]) {
+      toast("이미 가입된 이메일입니다. 로그인해 주세요.");
+      renderLoginView(false);
+      return;
+    }
+    users[email] = {
+      email: email,
+      name: name || email.split("@")[0],
+      passwordHash: simpleHash(pw),
+      createdAt: Date.now(),
+    };
+    saveUsers(users);
+    toast("회원가입이 완료되었습니다. 로그인해 주세요.");
+    renderLoginView(false);
+  };
+ 
+  window.handleLogin = function (e) {
+    e.preventDefault();
+    var emailEl = $id("login-email"),
+      pwEl = $id("login-password");
+    var email = (emailEl ? emailEl.value : "").trim().toLowerCase();
+    var pw = pwEl ? pwEl.value : "";
+ 
+    if (!email || !pw) {
+      toast("이메일과 비밀번호를 입력해 주세요.");
+      return;
+    }
+    var users = allUsers();
+    var user = users[email];
+    if (!user || user.passwordHash !== simpleHash(pw)) {
+      toast("이메일 또는 비밀번호가 올바르지 않습니다.");
+      return;
+    }
+    var token = createFakeJWT({
+      email: user.email,
+      name: user.name,
+      iat: Date.now(),
+      exp: Date.now() + TOKEN_TTL_MS,
+    });
+    try {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } catch (_) {}
+    state.currentUser = { email: user.email, name: user.name };
+    toast(user.name + "님, 환영합니다!");
+    updateAuthUI();
+    window.navigateTo("recommend");
+  };
+ 
+  window.handleLogout = function () {
+    try {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    } catch (_) {}
+    state.currentUser = null;
+    toast("로그아웃 되었습니다.");
+    updateAuthUI();
+    window.navigateTo("home");
+  };
+ 
+  // #view-login 컨테이너에 로그인/회원가입 폼을 그려준다.
+  function renderLoginView(showSignup) {
+    var c = $id("view-login");
+    if (!c) return;
+ 
+    if (isLoggedIn()) {
+      c.innerHTML =
+        '<div style="max-width:420px;margin:60px auto;text-align:center;">' +
+        '<h2 style="font-size:24px;font-weight:800;margin-bottom:16px;">' +
+        esc(state.currentUser.name) +
+        '님, 환영합니다.</h2>' +
+        '<p style="color:var(--color-text-secondary);margin-bottom:24px;">이제 AI 맞춤 추천을 자유롭게 이용하실 수 있습니다.</p>' +
+        '<button class="btn btn-primary" style="padding:12px 28px;margin-right:10px;" onclick="navigateTo(\'recommend\')">AI 추천 받으러 가기</button>' +
+        '<button class="btn btn-secondary" style="padding:12px 28px;" onclick="handleLogout()">로그아웃</button>' +
+        '</div>';
+      return;
+    }
+ 
+    if (showSignup) {
+      c.innerHTML =
+        '<div style="max-width:420px;margin:60px auto;">' +
+        '<h2 style="font-size:24px;font-weight:800;margin-bottom:24px;text-align:center;">회원가입</h2>' +
+        '<form onsubmit="handleSignup(event)" style="display:flex;flex-direction:column;gap:14px;">' +
+        '<input type="text" id="signup-name" class="form-control" placeholder="이름 (선택)">' +
+        '<input type="email" id="signup-email" class="form-control" placeholder="이메일" required>' +
+        '<input type="password" id="signup-password" class="form-control" placeholder="비밀번호 (6자 이상)" required>' +
+        '<input type="password" id="signup-password-confirm" class="form-control" placeholder="비밀번호 확인" required>' +
+        '<button type="submit" class="btn btn-primary" style="padding:12px;">회원가입</button>' +
+        '</form>' +
+        '<p style="text-align:center;margin-top:16px;font-size:14px;color:var(--color-text-secondary);">이미 계정이 있으신가요? ' +
+        '<a href="#" onclick="renderLoginView(false);return false;" style="color:var(--color-gold-dark);font-weight:700;">로그인</a></p>' +
+        '</div>';
+    } else {
+      c.innerHTML =
+        '<div style="max-width:420px;margin:60px auto;">' +
+        '<h2 style="font-size:24px;font-weight:800;margin-bottom:24px;text-align:center;">로그인</h2>' +
+        '<form onsubmit="handleLogin(event)" style="display:flex;flex-direction:column;gap:14px;">' +
+        '<input type="email" id="login-email" class="form-control" placeholder="이메일" required>' +
+        '<input type="password" id="login-password" class="form-control" placeholder="비밀번호" required>' +
+        '<button type="submit" class="btn btn-primary" style="padding:12px;">로그인</button>' +
+        '</form>' +
+        '<p style="text-align:center;margin-top:16px;font-size:14px;color:var(--color-text-secondary);">아직 계정이 없으신가요? ' +
+        '<a href="#" onclick="renderLoginView(true);return false;" style="color:var(--color-gold-dark);font-weight:700;">회원가입</a></p>' +
+        '</div>';
+    }
+  }
+  window.renderLoginView = renderLoginView;
+ 
+  // 로그인 상태에 따라 상단 탭 텍스트 + AI추천 화면 잠금 상태를 갱신
+  function updateAuthUI() {
+    var loggedIn = isLoggedIn();
+    var tab = $id("tab-login");
+    if (tab) tab.textContent = loggedIn ? state.currentUser.name + " 님" : "로그인";
+    renderRecommendGate();
+  }
+  window.updateAuthUI = updateAuthUI;
+ 
+  // AI 추천 폼을 로그인 상태에 따라 보여주거나, 로그인 안내로 막는다.
+  function renderRecommendGate() {
+    var fw = $id("recommend-form-wrapper");
+    if (!fw) return;
+    var gate = $id("recommend-login-gate");
+    if (isLoggedIn()) {
+      fw.style.display = "block";
+      if (gate) gate.style.display = "none";
+    } else {
+      fw.style.display = "none";
+      if (!gate) {
+        gate = document.createElement("div");
+        gate.id = "recommend-login-gate";
+        fw.parentNode.insertBefore(gate, fw);
+      }
+      gate.innerHTML =
+        '<div style="max-width:480px;margin:60px auto;text-align:center;">' +
+        '<p style="font-size:16px;color:var(--color-text-secondary);margin-bottom:20px;">AI 맞춤 추천 기능은 로그인 후 이용할 수 있습니다.</p>' +
+        '<button class="btn btn-primary" style="padding:12px 28px;" onclick="navigateTo(\'login\')">로그인 / 회원가입 하러 가기</button>' +
+        '</div>';
+      gate.style.display = "block";
+    }
+  }
+  window.renderRecommendGate = renderRecommendGate;
+ 
+  /* ==========================================================
+   * 4. 로컬 100권 데이터베이스
    * ======================================================== */
   var PRESET_BOOKS = [
     {id:"p01",title:"채식주의자",authors:"한강",publishedDate:"2007",categories:["소설"],description:"육식을 거부하는 한 여성의 삶을 통해 인간의 욕망, 폭력성, 예술적 열망을 탐구한 맨부커상 수상작. 몸과 마음의 혁명을 그린 현대 문학의 고전.",thumbnail:OL+"9788932025895-M.jpg"},
@@ -229,7 +489,7 @@
   ];
  
   /* ==========================================================
-   * 4. 도서 카드 렌더링
+   * 5. 도서 카드 렌더링
    * ======================================================== */
   function cardHTML(book, reason) {
     var yr = book.publishedDate ? book.publishedDate.slice(0, 4) : "";
@@ -239,60 +499,42 @@
   }
  
   /* ==========================================================
-   * 5. 로컬 검색 기능 (개선)
+   * 6. 로컬 검색 기능
    * ======================================================== */
   function searchLocalBooks(query, searchType) {
     var q = (query || "").trim().toLowerCase();
     if (!q) return [];
-    
-    console.log("검색어:", q, "타입:", searchType, "전체 책 수:", PRESET_BOOKS.length);
-    
+ 
     var results = PRESET_BOOKS.filter(function (book) {
       var title = (book.title || "").toLowerCase();
       var authors = (book.authors || "").toLowerCase();
       var description = (book.description || "").toLowerCase();
-      var categories = (book.categories || []).map(function(c) { return c.toLowerCase(); });
-      
+      var categories = (book.categories || []).map(function (c) { return c.toLowerCase(); });
+ 
       var titleMatch = title.includes(q);
       var authorsMatch = authors.includes(q);
       var descriptionMatch = description.includes(q);
-      var categoriesMatch = categories.some(function (cat) {
-        return cat.includes(q);
-      });
-      
-      // 검색 타입별 필터링
-      if (searchType === "title") {
-        return titleMatch;
-      } else if (searchType === "author") {
-        return authorsMatch;
-      } else if (searchType === "genre") {
-        return categoriesMatch;
-      } else {
-        // "all" 또는 기본값: 모든 필드 검색
-        return titleMatch || authorsMatch || categoriesMatch || descriptionMatch;
-      }
+      var categoriesMatch = categories.some(function (cat) { return cat.includes(q); });
+ 
+      if (searchType === "title") return titleMatch;
+      if (searchType === "author") return authorsMatch;
+      if (searchType === "genre") return categoriesMatch;
+      return titleMatch || authorsMatch || categoriesMatch || descriptionMatch;
     });
-    
-    console.log("검색 결과 수:", results.length);
+ 
     return results;
   }
  
   /* ==========================================================
-   * 6. 검색 결과 렌더링 (개선)
+   * 7. 검색 결과 렌더링
    * ======================================================== */
   function renderResults(books, query) {
     var grid = $id("search-results-grid");
     var summary = $id("search-results-summary");
     var empty = $id("search-empty-state");
-    
-    if (!grid) {
-      console.error("search-results-grid를 찾을 수 없습니다");
-      return;
-    }
-    
-    console.log("렌더링하는 책 수:", books.length, "검색어:", query);
-    
-    // 결과가 없을 때
+ 
+    if (!grid) return;
+ 
     if (!books || books.length === 0) {
       grid.innerHTML = "";
       if (summary) summary.style.display = "none";
@@ -304,23 +546,16 @@
       }
       return;
     }
-    
-    // 결과가 있을 때
+ 
     if (empty) empty.style.display = "none";
-    
-    // 캐시에 추가
-    books.forEach(function (b) { 
-      if (b && b.id) state.booksCache[b.id] = b; 
+ 
+    books.forEach(function (b) {
+      if (b && b.id) state.booksCache[b.id] = b;
     });
-    
-    // 카드 렌더링
-    var html = books.map(function (b) { 
-      return cardHTML(b, null); 
-    }).join("");
-    
+ 
+    var html = books.map(function (b) { return cardHTML(b, null); }).join("");
     grid.innerHTML = html;
-    
-    // 요약 정보
+ 
     if (summary) {
       summary.textContent = "'" + query + "'에 대한 검색 결과 " + books.length + "건";
       summary.style.display = "block";
@@ -328,60 +563,56 @@
   }
  
   /* ==========================================================
-   * 7. 검색 핸들러 (개선)
+   * 8. 검색 핸들러
    * ======================================================== */
   window.handleSearch = function (e) {
     e.preventDefault();
     var inputEl = $id("search-input");
     var typeEl = $id("search-type");
-    
+ 
     var q = (inputEl ? inputEl.value : "").trim();
     var type = (typeEl ? typeEl.value : "all") || "all";
-    
-    console.log("handleSearch 호출 - 검색어:", q, "타입:", type);
-    
-    if (!q) { 
-      toast("검색어를 입력해 주세요."); 
-      return; 
+ 
+    if (!q) {
+      toast("검색어를 입력해 주세요.");
+      return;
     }
-    
+ 
     showLoader("도서를 검색하고 있어요...");
     setTimeout(function () {
-      console.log("검색 실행 중...");
       var results = searchLocalBooks(q, type);
-      console.log("검색 완료, 결과:", results.length + "건");
       hideLoader();
       renderResults(results, q);
     }, 300);
   };
-  
+ 
   window.handleHomeSearch = function (e) {
     e.preventDefault();
     var inputEl = $id("home-search-input");
     var q = (inputEl ? inputEl.value : "").trim();
-    
-    console.log("handleHomeSearch 호출 - 검색어:", q);
-    
-    if (!q) { 
-      toast("검색어를 입력해 주세요."); 
-      return; 
+ 
+    if (!q) {
+      toast("검색어를 입력해 주세요.");
+      return;
     }
-    
-    // 검색 탭으로 이동
+ 
     window.navigateTo("search");
-    
-    // 검색 입력창 동기화
+ 
     var searchInput = $id("search-input");
     var searchType = $id("search-type");
     if (searchInput) searchInput.value = q;
     if (searchType) searchType.value = "all";
-    
-    // 검색 실행
+ 
     window.handleSearch({ preventDefault: function () {} });
   };
  
   /* ==========================================================
-   * 8. AI 맞춤 추천
+   * 9. AI 맞춤 추천
+   * ----------------------------------------------------------
+   * - 로그인한 사용자만 이용 가능 (renderRecommendGate)
+   * - 선호 장르 + 독서의 정취(분위기)가 추천의 핵심 기준
+   * - 키워드는 보조 점수로만 사용하며, 무엇을 입력하든(또는
+   *   아무것도 입력하지 않아도) 항상 5권의 추천 결과가 나온다.
    * ======================================================== */
   function craftReason(book, style, kw, idx) {
     var t = [
@@ -409,25 +640,44 @@
   };
   window.handleRecommendation = function (e) {
     e.preventDefault();
+ 
+    // 로그인하지 않은 경우 AI 추천 사용 불가 → 로그인 화면으로 안내
+    if (!isLoggedIn()) {
+      toast("AI 맞춤 추천은 로그인 후 이용하실 수 있습니다.");
+      window.navigateTo("login");
+      return;
+    }
+ 
     var genres = Array.from(state.selectedGenres);
-    var kw = ($id("recommend-keywords") || {}).value || "";
-    kw = kw.trim();
-    var style = ($id("recommend-style") || {}).value || "";
-    if (!genres.length && !kw) { toast("선호 장르를 선택하거나 키워드를 입력해 주세요."); return; }
+    var kw = (($id("recommend-keywords") || {}).value || "").trim();
+    var style = (($id("recommend-style") || {}).value || "").trim();
+ 
     showLoader("당신의 결을 닮은 책을 고르고 있어요...");
     setTimeout(function () {
-      var candidates = PRESET_BOOKS.filter(function (book) {
-        var genreMatch = !genres.length || genres.some(function (g) { return (book.categories || []).includes(g); });
-        var kwMatch = !kw || (book.title + " " + book.description + " " + (book.authors || "")).toLowerCase().includes(kw.toLowerCase());
-        return genreMatch && kwMatch;
+      // 모든 책에 점수를 매겨, 무엇을 입력하든 항상 추천 결과가 나오도록 한다.
+      // - 기본 무작위 점수: 아무 조건이 없어도 5권이 보장되는 안전망
+      // - 장르 일치: 가장 중요한 가중치
+      // - 키워드/정취 텍스트가 책 내용과 우연히 겹치면 추가 가중치(있으면 좋고, 없어도 무방)
+      var scored = PRESET_BOOKS.map(function (book) {
+        var score = Math.random();
+        var cats = book.categories || [];
+        if (genres.length) {
+          var matched = genres.filter(function (g) { return cats.indexOf(g) !== -1; }).length;
+          score += matched * 5;
+        }
+        var haystack = (book.title + " " + book.description + " " + (book.authors || "") + " " + cats.join(" ")).toLowerCase();
+        if (kw && haystack.indexOf(kw.toLowerCase()) !== -1) score += 3;
+        if (style && haystack.indexOf(style.toLowerCase()) !== -1) score += 1;
+        return { book: book, score: score };
       });
+      scored.sort(function (a, b) { return b.score - a.score; });
+      var picks = scored.slice(0, 5).map(function (s) { return s.book; });
+ 
       hideLoader();
-      if (!candidates.length) { toast("조건에 맞는 도서를 찾지 못했습니다. 다른 키워드로 시도해 보세요."); return; }
-      shuffle(candidates);
-      var picks = candidates.slice(0, 5);
       picks.forEach(function (b) { state.booksCache[b.id] = b; });
       var grid = $id("recommend-grid");
-      if (grid) grid.innerHTML = picks.map(function (b, i) { return cardHTML(b, craftReason(b, style, kw, i)); }).join("");
+      var styleForReason = style || "지금의 마음";
+      if (grid) grid.innerHTML = picks.map(function (b, i) { return cardHTML(b, craftReason(b, styleForReason, kw, i)); }).join("");
       var fw = $id("recommend-form-wrapper");
       var rw = $id("recommend-results-wrapper");
       if (fw) fw.style.display = "none";
@@ -436,15 +686,15 @@
     }, 400);
   };
   window.resetRecommendations = function () {
-    var fw = $id("recommend-form-wrapper");
     var rw = $id("recommend-results-wrapper");
     if (rw) rw.style.display = "none";
-    if (fw) fw.style.display = "block";
+    // 로그인 상태에 따라 폼 또는 로그인 안내를 다시 그려준다.
+    renderRecommendGate();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
  
   /* ==========================================================
-   * 9. 도서 상세보기
+   * 10. 도서 상세보기
    * ======================================================== */
   function renderDetail(book) {
     var card = $id("book-detail-card");
@@ -460,7 +710,7 @@
   };
  
   /* ==========================================================
-   * 10. 리뷰
+   * 11. 리뷰
    * ======================================================== */
   function allReviews() { try { return JSON.parse(localStorage.getItem(REVIEWS_KEY)) || {}; } catch (_) { return {}; } }
   function saveAll(data) { localStorage.setItem(REVIEWS_KEY, JSON.stringify(data)); }
@@ -478,7 +728,7 @@
   window.deleteReview = function (bookId, rvId) { if (!confirm("이 리뷰를 삭제하시겠습니까?")) return; var rvs = getR(bookId).filter(function (r) { return r.id !== rvId; }); setR(bookId, rvs); if (state.editingReviewId === rvId) state.editingReviewId = null; renderReviews(bookId); toast("리뷰가 삭제되었습니다."); };
  
   /* ==========================================================
-   * 11. 초기화
+   * 12. 초기화
    * ======================================================== */
   document.addEventListener("DOMContentLoaded", function () {
     PRESET_BOOKS.forEach(function (b) { state.booksCache[b.id] = b; });
@@ -488,6 +738,8 @@
       var summary = $id("search-results-summary");
       if (summary) { summary.textContent = "라 리브레리 추천 도서 " + PRESET_BOOKS.length + "권"; summary.style.display = "block"; }
     }
+    updateAuthUI(); // 로그인 상태에 맞춰 상단 탭 + AI추천 잠금 화면을 초기화
     window.navigateTo("home");
   });
 })();
+ 
